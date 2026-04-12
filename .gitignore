@@ -1,12 +1,50 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Environment
 .env
+.env.local
+
+# Data (generated)
 data/raw/
 data/processed/
 data/models/
+*.parquet
 *.duckdb
 *.duckdb.wal
-.venv/
-dist/
-*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Cache
+.ruff_cache/
 .pytest_cache/
+.mypy_cache/
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lock files (optional - uncomment if you prefer)
+# uv.lock
+# package-lock.json

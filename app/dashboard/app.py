@@ -17,9 +17,9 @@ def get_db_connection():
     return create_engine(settings.DATABASE_URL)
 
 
-def query(sql: str) -> pd.DataFrame:
+def query(sql: str, params: dict | None = None) -> pd.DataFrame:
     with get_db_connection().connect() as conn:
-        return pd.read_sql(text(sql), conn)
+        return pd.read_sql(text(sql), conn, params=params)
 
 
 st.set_page_config(page_title="MDK Mining AI", page_icon="⛏️", layout="wide")
@@ -32,7 +32,7 @@ except:
     tables_exist = False
 
 if not tables_exist:
-    st.warning("⚠️ Ejecuta primero: python -m src.pipeline.kpi")
+    st.warning("⚠️ Run first: python -m app.pipeline.kpi")
     st.stop()
 
 tab1, tab2, tab3, tab4 = st.tabs(
@@ -99,12 +99,12 @@ with tab2:
     selected = st.selectbox("Select Device", devices)
 
     if selected:
-        stats = query(f"""
+        stats = query("""
             SELECT asic_hashrate_th, chip_temperature_c, asic_power_w,
                    true_efficiency_jth, economic_te, fan_speed_rpm, error_count, model
-            FROM kpi WHERE device_id = '{selected}'
+            FROM kpi WHERE device_id = :device_id
             ORDER BY timestamp DESC LIMIT 1
-        """).iloc[0]
+        """, {"device_id": selected}).iloc[0]
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Hashrate", f"{stats.asic_hashrate_th:.1f} TH/s")
@@ -119,10 +119,10 @@ with tab2:
         col8.metric("Model", stats.model)
 
         st.subheader("Time Series")
-        ts_data = query(f"""
+        ts_data = query("""
             SELECT timestamp, asic_hashrate_th, chip_temperature_c, asic_power_w
-            FROM kpi WHERE device_id = '{selected}' ORDER BY timestamp
-        """)
+            FROM kpi WHERE device_id = :device_id ORDER BY timestamp
+        """, {"device_id": selected})
 
         tab_h, tab_t, tab_p = st.tabs(["Hashrate", "Temperature", "Power"])
         with tab_h:

@@ -96,14 +96,13 @@ class DecisionEngine:
                 f"Temperature {state['temperature']}°C exceeds throttle threshold "
                 f"{settings.TEMP_THROTTLE}°C for device {state['device_id']}"
             )
-            if state["temperature"] >= settings.TEMP_THROTTLE:
-                return ControlAction(
-                    action_type=ActionType.UNDERCLOCK,
-                    clock_multiplier=0.8,
-                    reason="temp_throttle",
-                    safety_override=True,
-                    timestamp=datetime.now(),
-                )
+            return ControlAction(
+                action_type=ActionType.UNDERCLOCK,
+                clock_multiplier=0.8,
+                reason="temp_throttle",
+                safety_override=True,
+                timestamp=datetime.now(),
+            )
 
         voltage_deviation = (
             abs(state["voltage"] - settings.VOLTAGE_NOMINAL) / settings.VOLTAGE_NOMINAL

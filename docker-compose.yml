@@ -14,6 +14,7 @@ services:
       watch:
         - path: .
           target: /app
+          action: sync
           ignore:
             - .venv/
             - __pycache__/

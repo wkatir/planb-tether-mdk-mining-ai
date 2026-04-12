@@ -41,16 +41,16 @@ def get_device_ranking(
     limit: int = 10,
     db: duckdb.DuckDBPyConnection = Depends(get_db),
 ) -> list[DeviceRanking]:
-    sql = f"""
+    sql = """
         SELECT
             device_id,
             AVG(efficiency) * 1000 / AVG(temperature) as te_score
         FROM telemetry
         GROUP BY device_id
         ORDER BY te_score DESC
-        LIMIT {limit}
+        LIMIT ?
     """
-    df = db.execute(sql).fetchdf()
+    df = db.execute(sql, [limit]).fetchdf()
     rankings = []
     for i, row in enumerate(df.itertuples(), 1):
         rankings.append(
