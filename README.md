@@ -1,45 +1,40 @@
-# FastAPI Enterprise Template
+# MDK Mining AI
 
-A production-ready FastAPI project template with Docker, PostgreSQL, and modern Python tooling.
-
-## Tech Stack
-
-- **FastAPI** - Modern Python web framework
-- **SQLModel** - SQL ORM with Pydantic integration
-- **PostgreSQL** - Relational database
-- **Alembic** - Database migrations
-- **Docker** - Containerization
-- **uv** - Python package manager
+AI-Driven Mining Optimization & Predictive Maintenance — Tether MDK Assignment.
 
 ## Quick Start
 
 ```bash
-# Start with Docker Compose
-docker-compose up --build
+# Install dependencies
+pip install -r requirements.txt
 
-# Run migrations
-uv run alembic upgrade head
+# Start PostgreSQL
+docker-compose up -d db
 
-# Access API docs
-open http://localhost:8000/docs
+# Generate synthetic data
+python -m app.data.generator
+
+# Ingest into PostgreSQL
+python -m app.pipeline.ingestion
+
+# Compute features
+python -m app.pipeline.features
+
+# Compute KPIs
+python -m app.pipeline.kpi
+
+# Start API
+uvicorn app.api.main:app --reload --port 8000
+
+# Start dashboard
+streamlit run app.dashboard.app --server.port 8501
 ```
 
-## Features
+## Architecture
 
-- Async SQLModel with PostgreSQL
-- Alembic migrations
-- Docker multi-stage build with uv
-- Health check endpoint
-- CRUD API structure
-- Environment-based configuration
-
-## TODO
-
-- [ ] Add authentication (JWT)
-- [ ] Add API documentation
-- [ ] Add tests
-- [ ] Add CI/CD pipeline
-
----
-
-*Template created by [@wkatir](https://github.com/wkatir) - More details coming soon*
+- **Synthetic Data Generator**: Physics-based ASIC telemetry simulation
+- **Data Pipeline**: PostgreSQL, feature engineering, KPI computation
+- **ML Models**: LSTM autoencoder (anomaly detection), XGBoost (failure classification)
+- **RL Agent**: PPO-based optimal control policy
+- **API**: FastAPI for telemetry, KPIs, health, and control endpoints
+- **Dashboard**: Streamlit UI for fleet monitoring and AI insights
