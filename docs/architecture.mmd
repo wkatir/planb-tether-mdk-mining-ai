@@ -1,0 +1,48 @@
+graph TD
+    subgraph HW["Hardware Layer"]
+        ASIC["ASIC Fleet\nS21 | S21 Pro | S21 XP | M60S"]
+        SENS["Site Sensors\nAmbient | Cooling | Power"]
+    end
+
+    subgraph MDK["MDK Core - JavaScript SDK"]
+        WORK["MDK Workers\nDevice Libraries"]
+        HB["Hyperbee\nTime-series Storage"]
+        HRPC["HRPC Interface"]
+    end
+
+    subgraph AI["AI Controller - Python Prototype"]
+        ING["Telemetry Ingestion\nFastAPI + Pydantic"]
+        FE["Feature Engineering\nPostgreSQL Window Functions"]
+        KPI["KPI Engine\nTE | ETE | Profit Density"]
+        AD["Anomaly Detector\nLSTM Autoencoder"]
+        FC["Failure Classifier\nXGBoost + SHAP"]
+        RL["RL Agent\nPPO via Stable-Baselines3"]
+        DE["Decision Engine\nSafety Layer"]
+        LLM["Local LLM\nGemma 4 E4B via Ollama"]
+    end
+
+    subgraph OUT["Outputs"]
+        CMD["Control Commands\nRate-limited + Safety-gated"]
+        DASH["Operator Dashboard\nStreamlit"]
+        ONNX["ONNX Models\nEdge Deployment"]
+    end
+
+    ASIC -->|"Telemetry"| WORK
+    SENS -->|"Sensor data"| WORK
+    WORK --> HB
+    WORK -->|"HRPC"| HRPC
+    HRPC -->|"REST / HRPC"| ING
+    ING --> FE
+    FE --> KPI
+    FE --> AD
+    FE --> FC
+    KPI --> RL
+    AD --> DE
+    FC --> DE
+    RL --> DE
+    DE --> CMD
+    CMD -->|"Set clock/voltage/fan"| WORK
+    DE --> DASH
+    LLM --> DASH
+    AD --> ONNX
+    FC --> ONNX

@@ -22,27 +22,26 @@ MODEL_PATH: Path = MODEL_DIR / "lstm_autoencoder.pt"
 
 
 class LSTMAutoencoder(nn.Module):
-    def __init__(self, input_dim: int = FEATURE_DIM) -> None:
+    """LSTM Autoencoder for anomaly detection via reconstruction error."""
+
+    def __init__(self, input_dim: int = FEATURE_DIM, seq_len: int = 48) -> None:
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.LSTM(input_dim, 64, batch_first=True),
-            nn.LSTM(64, 32, batch_first=True),
-        )
+        self.seq_len = seq_len
+        self.enc_lstm1 = nn.LSTM(input_dim, 64, batch_first=True)
+        self.enc_lstm2 = nn.LSTM(64, 32, batch_first=True)
         self.bottleneck = nn.Linear(32, 16)
-        self.decoder = nn.Sequential(
-            nn.LSTM(16, 32, batch_first=True),
-            nn.LSTM(32, 64, batch_first=True),
-        )
-        self.output = nn.Linear(64, input_dim)
+        self.dec_lstm1 = nn.LSTM(16, 32, batch_first=True)
+        self.dec_lstm2 = nn.LSTM(32, 64, batch_first=True)
+        self.output_layer = nn.Linear(64, input_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        enc, _ = self.encoder(x)
-        enc = enc[:, -1, :]
-        bottleneck = self.bottleneck(enc)
-        bottleneck = bottleneck.unsqueeze(1).repeat(1, 2, 1)
-        dec, _ = self.decoder(bottleneck)
-        dec = dec[:, -1, :]
-        return self.output(dec)
+        enc_out, _ = self.enc_lstm1(x)
+        enc_out, _ = self.enc_lstm2(enc_out)
+        z = self.bottleneck(enc_out[:, -1, :])
+        z_repeated = z.unsqueeze(1).repeat(1, self.seq_len, 1)
+        dec_out, _ = self.dec_lstm1(z_repeated)
+        dec_out, _ = self.dec_lstm2(dec_out)
+        return self.output_layer(dec_out)
 
 
 @dataclass
@@ -55,7 +54,7 @@ class AnomalyResult:
 class AnomalyDetector:
     def __init__(self) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = LSTMAutoencoder(FEATURE_DIM).to(self.device)
+        self.model = LSTMAutoencoder(FEATURE_DIM, seq_len=48).to(self.device)
         self.threshold: float = 0.0
         self.is_trained: bool = False
         self.scaler_mean: np.ndarray | None = None
@@ -75,9 +74,10 @@ class AnomalyDetector:
         self.scaler_std = np.std(data, axis=0) + 1e-8
         normalized = (data - self.scaler_mean) / self.scaler_std
 
+        seq_len = 48
         sequences = []
-        for i in range(len(normalized) - 2):
-            seq = normalized[i : i + 3]
+        for i in range(len(normalized) - seq_len):
+            seq = normalized[i : i + seq_len]
             sequences.append(seq)
         sequences = np.array(sequences)
 
@@ -123,7 +123,15 @@ class AnomalyDetector:
             return AnomalyResult(score=0.0, is_anomaly=False, threshold=0.0)
 
         normalized = (data - self.scaler_mean) / self.scaler_std
-        seq = torch.FloatTensor(normalized[:3]).unsqueeze(0).to(self.device)
+        if len(normalized) < 48:
+            padded = np.zeros(
+                (48, normalized.shape[-1] if normalized.ndim > 1 else len(normalized))
+            )
+            padded[: len(normalized)] = (
+                normalized[:48] if normalized.ndim > 1 else normalized
+            )
+            normalized = padded
+        seq = torch.FloatTensor(normalized[:48]).unsqueeze(0).to(self.device)
 
         self.model.eval()
         with torch.no_grad():

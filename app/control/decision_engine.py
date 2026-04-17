@@ -106,6 +106,8 @@ class DecisionEngine:
 
         voltage_deviation = (
             abs(state["voltage"] - settings.VOLTAGE_NOMINAL) / settings.VOLTAGE_NOMINAL
+            if settings.VOLTAGE_NOMINAL > 0
+            else 0.0
         )
         if voltage_deviation > self.VOLTAGE_TOLERANCE:
             logger.warning(

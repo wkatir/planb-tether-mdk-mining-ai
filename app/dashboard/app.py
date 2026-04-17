@@ -17,9 +17,15 @@ def get_db_connection():
     return create_engine(settings.DATABASE_URL)
 
 
-def query(sql: str, params: dict | None = None) -> pd.DataFrame:
-    with get_db_connection().connect() as conn:
-        return pd.read_sql(text(sql), conn, params=params)
+@st.cache_data(ttl=60)
+def query(sql: str, _params: tuple | None = None) -> pd.DataFrame:
+    """Cached DB query. TTL=60s. Use _params as tuple for hashability."""
+    engine = get_db_connection()
+    with engine.connect() as conn:
+        params_dict = dict(_params) if _params else None
+        df = pd.read_sql(text(sql), conn, params=params_dict)
+    engine.dispose()
+    return df
 
 
 st.set_page_config(page_title="MDK Mining AI", page_icon="⛏️", layout="wide")
@@ -99,12 +105,15 @@ with tab2:
     selected = st.selectbox("Select Device", devices)
 
     if selected:
-        stats = query("""
+        stats = query(
+            """
             SELECT asic_hashrate_th, chip_temperature_c, asic_power_w,
                    true_efficiency_jth, economic_te, fan_speed_rpm, error_count, model
             FROM kpi WHERE device_id = :device_id
             ORDER BY timestamp DESC LIMIT 1
-        """, {"device_id": selected}).iloc[0]
+        """,
+            _params=(("device_id", selected),),
+        ).iloc[0]
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Hashrate", f"{stats.asic_hashrate_th:.1f} TH/s")
@@ -119,10 +128,13 @@ with tab2:
         col8.metric("Model", stats.model)
 
         st.subheader("Time Series")
-        ts_data = query("""
+        ts_data = query(
+            """
             SELECT timestamp, asic_hashrate_th, chip_temperature_c, asic_power_w
             FROM kpi WHERE device_id = :device_id ORDER BY timestamp
-        """, {"device_id": selected})
+        """,
+            _params=(("device_id", selected),),
+        )
 
         tab_h, tab_t, tab_p = st.tabs(["Hashrate", "Temperature", "Power"])
         with tab_h:

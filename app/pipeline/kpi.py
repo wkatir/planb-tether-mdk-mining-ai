@@ -34,8 +34,8 @@ class KPIEngine:
 
                 CASE operating_mode
                     WHEN 'normal'    THEN 1.00
-                    WHEN 'low_power' THEN 0.90
-                    WHEN 'overclock' THEN 1.15
+                    WHEN 'low_power' THEN 1.10
+                    WHEN 'overclock' THEN 0.85
                     ELSE 1.00
                 END AS eta_mode,
 
@@ -64,7 +64,8 @@ class KPIEngine:
 
         add_columns_sql = text("""
             ALTER TABLE kpi ADD COLUMN IF NOT EXISTS true_efficiency_jth FLOAT;
-            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS economic_te FLOAT
+            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS economic_te FLOAT;
+            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS profit_density FLOAT
         """)
 
         update_kpi_sql = text("""
@@ -78,10 +79,23 @@ class KPIEngine:
                 economic_te = CASE
                     WHEN asic_hashrate_th > 0 AND hashprice_ph_day > 0
                          AND eta_env > 0 AND eta_mode > 0
-                    THEN ((asic_power_w + p_cooling_alloc + p_aux)
-                          / (asic_hashrate_th * eta_env * eta_mode))
-                         * energy_price_kwh * 24.0
-                         / (hashprice_ph_day / 1000.0)
+                    THEN (
+                        0.024 * (asic_power_w + p_cooling_alloc + p_aux)
+                              / (asic_hashrate_th * eta_env * eta_mode)
+                              * energy_price_kwh
+                    ) / (
+                        hashprice_ph_day / 1000.0
+                    )
+                    ELSE NULL
+                END,
+                profit_density = CASE
+                    WHEN asic_power_w > 0 AND hashprice_ph_day > 0
+                         AND eta_env > 0 AND eta_mode > 0
+                    THEN (
+                        (hashprice_ph_day / 1000.0 * asic_hashrate_th)
+                        - (0.024 * (asic_power_w + p_cooling_alloc + p_aux)
+                           / (eta_env * eta_mode) * energy_price_kwh)
+                    ) / (asic_power_w + p_cooling_alloc + p_aux)
                     ELSE NULL
                 END
         """)
@@ -99,14 +113,16 @@ class KPIEngine:
                 AVG(true_efficiency_jth) as avg_te,
                 MIN(true_efficiency_jth) as min_te,
                 MAX(true_efficiency_jth) as max_te,
-                AVG(economic_te) as avg_ete
+                AVG(economic_te) as avg_ete,
+                AVG(profit_density) as avg_pd
             FROM kpi
             WHERE true_efficiency_jth IS NOT NULL
         """)
 
         logger.info(
             f"KPI Stats — TE avg: {stats.iloc[0]['avg_te']:.1f} J/TH, "
-            f"ETE avg: {stats.iloc[0]['avg_ete']:.4f}"
+            f"ETE avg: {stats.iloc[0]['avg_ete']:.4f}, "
+            f"PD avg: {stats.iloc[0]['avg_pd']:.6f} $/W/day"
         )
 
     def get_device_kpi_summary(self) -> pd.DataFrame:

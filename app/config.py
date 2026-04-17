@@ -13,36 +13,32 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- Application ---
     app_env: str = "development"
     log_level: str = "INFO"
 
-    # --- Paths ---
     data_dir: Path = Path("./data")
     raw_data_dir: Path = Path("./data/raw")
     processed_data_dir: Path = Path("./data/processed")
     models_dir: Path = Path("./data/models")
 
-    # --- Synthetic Data ---
     fleet_size: int = 50
     simulation_days: int = 30
     sample_interval_minutes: int = 1
     failure_injection_rate: float = 0.05
 
-    # --- FastAPI ---
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
-    # --- PostgreSQL ---
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@db:5432/app"
 
-    # --- Physical Constants ---
-    TEMP_NORMAL_MAX: float = 85.0
-    TEMP_THROTTLE: float = 95.0
-    TEMP_EMERGENCY: float = 105.0
+    TEMP_NORMAL_MAX: float = 70.0
+    TEMP_THROTTLE: float = 78.0
+    TEMP_WARNING: float = 85.0
+    TEMP_EMERGENCY: float = 95.0
     TEMP_REFERENCE: float = 25.0
 
     VOLTAGE_MAX_DEVIATION: float = 0.10
+    VOLTAGE_NOMINAL: float = 340.0
 
     CLOCK_MAX_CHANGE_PCT: float = 0.05
     MIN_COMMAND_INTERVAL_SEC: int = 300

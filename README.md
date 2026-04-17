@@ -185,11 +185,12 @@ ETE = (power * electricity_price) / hashrate
 
 ## ASIC Specifications
 
-| Model | Hashrate (TH/s) | Power (W) | Efficiency (W/TH) |
-|-------|-----------------|-----------|------------------|
-| S21 | 200 | 3500 | 17.5 |
-| S21 XP | 255 | 5300 | 20.8 |
-| M60S | 198 | 3680 | 18.6 |
+| Model | Hashrate (TH/s) | Power (W) | Efficiency (J/TH) | Source |
+|-------|-----------------|-----------|-------------------|--------|
+| Antminer S21 | 200 | 3,500 | 17.5 | [miningnow](https://miningnow.com/asic-miner/bitmain-antminer-s21-200th-s/) |
+| Antminer S21 Pro | 234 | 3,510 | 15.0 | [miningnow](https://miningnow.com/asic-miner/bitmain-antminer-s21-pro-234th-s/) |
+| Antminer S21 XP | 270 | 3,645 | 13.5 | [miningnow](https://miningnow.com/asic-miner/bitmain-antminer-s21-xp-270th-s/) |
+| WhatsMiner M60S | 186 | 3,441 | 18.5 | [hashrateindex](https://hashrateindex.com/rigs/microbt-whatsminer-186-m60s) |
 
 ## Development
 
@@ -206,4 +207,4 @@ ruff format app/
 
 ## License
 
-Tether MDK Assignment.
+Apache License 2.0 — matching MDK and MOS ecosystem. See [LICENSE](LICENSE).

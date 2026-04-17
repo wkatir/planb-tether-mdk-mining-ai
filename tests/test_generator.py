@@ -1,92 +1,54 @@
+"""Tests for synthetic data generator."""
+
 import numpy as np
 import pytest
 
 
-DATA_GENERATED = False
-
-
-def check_data_ready():
-    return DATA_GENERATED
-
-
-@pytest.mark.skipif(not check_data_ready(), reason="Data not generated yet")
 class TestSyntheticDataGenerator:
-    def test_generator_initializes(self):
-        try:
-            from app.data.generator import SyntheticDataGenerator
+    def test_generator_creates(self):
+        from app.data.generator import SyntheticDataGenerator
 
-            gen = SyntheticDataGenerator()
-            assert gen is not None
-        except ImportError:
-            pytest.skip("SyntheticDataGenerator not implemented yet")
+        gen = SyntheticDataGenerator(fleet_size=5, days=1, seed=42)
+        assert gen is not None
+        assert gen.fleet_size == 5
+        assert gen.total_steps > 0
 
-    def test_ambient_temperature_range(self):
-        try:
-            from app.data.generator import SyntheticDataGenerator
-        except ImportError:
-            pytest.skip("SyntheticDataGenerator not implemented yet")
+    def test_ambient_range(self):
+        from app.data.generator import SyntheticDataGenerator
 
-        try:
-            gen = SyntheticDataGenerator()
-            temps = gen.generate_ambient_temperature(1000)
-            assert np.all(temps >= 5) and np.all(temps <= 50), (
-                f"Ambient temperature out of range [5, 50]: min={temps.min()}, max={temps.max()}"
-            )
-        except AttributeError:
-            pytest.skip("generate_ambient_temperature method not available")
+        gen = SyntheticDataGenerator(fleet_size=2, days=1, seed=42)
+        temps = gen._generate_ambient()
+        assert np.all(temps >= 5.0), f"Min too low: {temps.min()}"
+        assert np.all(temps <= 50.0), f"Max too high: {temps.max()}"
 
     def test_energy_price_range(self):
-        try:
-            from app.data.generator import SyntheticDataGenerator
-        except ImportError:
-            pytest.skip("SyntheticDataGenerator not implemented yet")
+        from app.data.generator import SyntheticDataGenerator
 
-        try:
-            gen = SyntheticDataGenerator()
-            prices = gen.generate_energy_price(1000)
-            assert np.all(prices >= 0.02) and np.all(prices <= 0.50), (
-                f"Energy price out of range [0.02, 0.50]: min={prices.min()}, max={prices.max()}"
-            )
-        except AttributeError:
-            pytest.skip("generate_energy_price method not available")
+        gen = SyntheticDataGenerator(fleet_size=2, days=1, seed=42)
+        prices = gen._generate_energy_price()
+        assert np.all(prices >= 0.02), f"Min too low: {prices.min()}"
+        assert np.all(prices <= 0.50), f"Max too high: {prices.max()}"
 
     def test_hashprice_range(self):
-        try:
-            from app.data.generator import SyntheticDataGenerator
-        except ImportError:
-            pytest.skip("SyntheticDataGenerator not implemented yet")
+        from app.data.generator import SyntheticDataGenerator
 
-        try:
-            gen = SyntheticDataGenerator()
-            hashprices = gen.generate_hashprice(1000)
-            assert np.all(hashprices >= 20) and np.all(hashprices <= 120), (
-                f"Hashprice out of range [20, 120]: min={hashprices.min()}, max={hashprices.max()}"
-            )
-        except AttributeError:
-            pytest.skip("generate_hashprice method not available")
+        gen = SyntheticDataGenerator(fleet_size=2, days=1, seed=42)
+        hp = gen._generate_hashprice()
+        assert np.all(hp >= 20.0), f"Min too low: {hp.min()}"
+        assert np.all(hp <= 120.0), f"Max too high: {hp.max()}"
 
+    def test_fleet_includes_s21_pro(self):
+        from app.data.generator import SyntheticDataGenerator
 
-class TestMinerState:
-    def test_miner_state_as_dict(self):
-        mock_state = {
-            "device_id": "miner_001",
-            "rack_id": "rack_01",
-            "asic_id": "asic_001",
-            "P": 3500.0,
-            "P_cooling": 500.0,
-            "P_aux": 100.0,
-            "T": 85.0,
-            "H": 50.0,
-            "hash_rate": 200.0,
-            "hash_price": 0.05,
-            "energy_price": 0.08,
-            "η_env": 0.9,
-            "η_mode": 0.95,
-            "uptime_hours": 100.0,
-            "fan_speed": 60.0,
-            "power_mode": "balanced",
-            "failure_probability": 0.01,
-        }
-        assert mock_state["device_id"] == "miner_001"
-        assert mock_state["P"] == 3500.0
-        assert mock_state["T"] == 85.0
+        gen = SyntheticDataGenerator(fleet_size=50, days=1, seed=42)
+        models = [m.spec.model_name for m in gen.miners]
+        assert "Antminer S21 Pro" in models, f"S21 Pro missing. Models: {set(models)}"
+
+    def test_failure_injection_present(self):
+        from app.data.generator import SyntheticDataGenerator
+
+        gen = SyntheticDataGenerator(fleet_size=50, days=1, seed=42)
+        unhealthy = [m for m in gen.miners if not m.is_healthy]
+        assert len(unhealthy) >= 1, "Expected at least 1 unhealthy miner"
+        types = {m.failure_type for m in unhealthy}
+        assert types.issubset({"thermal", "hashboard", "psu"}), f"Bad types: {types}"

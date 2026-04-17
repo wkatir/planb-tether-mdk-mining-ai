@@ -113,6 +113,30 @@ class FailureClassifier:
             self.model.save_model(str(save_path))
             logger.info(f"Model saved to {save_path}")
 
+    def export_onnx(self, path: Path | None = None) -> str:
+        """Export to ONNX for MOS edge deployment."""
+        export_path = path or (MODEL_DIR / "classifier.onnx")
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.model is None:
+            logger.warning("No trained model to export")
+            return ""
+        try:
+            import onnxmltools
+            from skl2onnx.common.data_types import FloatTensorType
+
+            initial_type = [
+                ("features", FloatTensorType([None, len(self.feature_names)]))
+            ]
+            onnx_model = onnxmltools.convert_xgboost(
+                self.model.get_booster(), initial_types=initial_type
+            )
+            onnxmltools.utils.save_model(onnx_model, str(export_path))
+            logger.info(f"ONNX model exported: {export_path}")
+            return str(export_path)
+        except ImportError:
+            logger.warning("Install onnxmltools and skl2onnx for ONNX export")
+            return ""
+
     @classmethod
     def load(cls, path: Path | None = None) -> Self:
         load_path = path or MODEL_PATH

@@ -12,8 +12,8 @@ class MiningEnv(gym.Env):
 
     BASE_CLOCK = 2000
     BASE_VOLTAGE = 1.00
-    THERMAL_THRESHOLD = 95.0
-    MAX_TEMP = 110.0
+    THERMAL_THRESHOLD = 78.0
+    MAX_TEMP = 95.0
 
     def __init__(self, data=None, hashrate_model=None):
         super().__init__()

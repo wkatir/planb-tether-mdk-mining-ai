@@ -101,8 +101,29 @@ WHATSMINER_M60S = ASICSpec(
     release_year=2023,
 )
 
+ANTMINER_S21_PRO = ASICSpec(
+    model_name="Antminer S21 Pro",
+    manufacturer="Bitmain",
+    algorithm="SHA-256",
+    hashrate_th=234.0,
+    power_watts=3510.0,
+    efficiency_jth=15.0,
+    cooling_type="air",
+    chip_process_nm=5,
+    num_hashboards=3,
+    chips_per_board=90,
+    nominal_voltage_mv=330.0,
+    nominal_clock_mhz=530.0,
+    max_temp_c=45.0,
+    weight_kg=18.5,
+    dimensions_mm=(450, 219, 293),
+    noise_db=75.0,
+    release_year=2025,
+)
+
 ASIC_REGISTRY: dict[str, ASICSpec] = {
     "antminer_s21": ANTMINER_S21,
+    "antminer_s21_pro": ANTMINER_S21_PRO,
     "antminer_s21_xp": ANTMINER_S21_XP,
     "whatsminer_m60s": WHATSMINER_M60S,
 }

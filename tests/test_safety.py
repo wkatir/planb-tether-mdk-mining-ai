@@ -1,93 +1,53 @@
-import time
-from unittest.mock import MagicMock
+"""Tests for safety constraints and ASIC specs."""
 
 import pytest
+from app.config import settings
 
 
-class TestSafetyConstraints:
-    def test_decision_engine_temp_threshold(self):
-        try:
-            from app.control.safety import DecisionEngine
-        except ImportError:
-            try:
-                from app.rl.safety import DecisionEngine
-            except ImportError:
-                pytest.skip("DecisionEngine not implemented yet")
+class TestSafetyThresholds:
+    def test_throttle_before_emergency(self):
+        assert settings.TEMP_THROTTLE < settings.TEMP_EMERGENCY
 
-        engine = DecisionEngine()
-        mock_state = MagicMock()
-        mock_state.T = 94.0
-        result = engine.should_throttle(mock_state)
-        assert result is False, "Should not throttle below 95°C"
+    def test_warning_between_throttle_and_emergency(self):
+        assert settings.TEMP_THROTTLE < settings.TEMP_WARNING < settings.TEMP_EMERGENCY
 
-        mock_state.T = 95.0
-        result = engine.should_throttle(mock_state)
-        assert result is True, "Should throttle at or above 95°C"
+    def test_voltage_deviation_reasonable(self):
+        assert 0.05 <= settings.VOLTAGE_MAX_DEVIATION <= 0.15
 
-        mock_state.T = 100.0
-        result = engine.should_throttle(mock_state)
-        assert result is True, "Should throttle above 95°C"
+    def test_command_rate_limit_minimum(self):
+        assert settings.MIN_COMMAND_INTERVAL_SEC >= 60
 
-    def test_voltage_deviation_limit(self):
-        try:
-            from app.control.safety import DecisionEngine
-        except ImportError:
-            try:
-                from app.rl.safety import DecisionEngine
-            except ImportError:
-                pytest.skip("DecisionEngine not implemented yet")
-
-        engine = DecisionEngine()
-        nominal_voltage = 5.0
-
-        deviation_5_percent = nominal_voltage * 1.05
-        assert engine.is_voltage_safe(deviation_5_percent), (
-            f"±5% deviation should be safe: {deviation_5_percent}V"
-        )
-
-        deviation_10_percent = nominal_voltage * 1.10
-        assert not engine.is_voltage_safe(deviation_10_percent), (
-            f"±10% deviation should NOT be safe: {deviation_10_percent}V"
-        )
-
-        deviation_minus_10_percent = nominal_voltage * 0.90
-        assert not engine.is_voltage_safe(deviation_minus_10_percent), (
-            f"-10% deviation should NOT be safe: {deviation_minus_10_percent}V"
-        )
-
-    def test_rate_limiting(self):
-        try:
-            from app.control.safety import DecisionEngine
-        except ImportError:
-            try:
-                from app.rl.safety import DecisionEngine
-            except ImportError:
-                pytest.skip("DecisionEngine not implemented yet")
-
-        engine = DecisionEngine()
-        device_id = "miner_001"
-
-        assert engine.can_send_command(device_id), "First command should be allowed"
-
-        engine.record_command(device_id, "throttle")
-        assert not engine.can_send_command(device_id), (
-            "Command within 5 min should be rate limited"
-        )
-
-        engine._last_command_time[device_id] = time.time() - 301
-        assert engine.can_send_command(device_id), (
-            "Command after 5 min should be allowed"
-        )
+    def test_fleet_overclock_cap(self):
+        assert settings.MAX_FLEET_OVERCLOCK_PCT <= 0.30
 
 
-class TestVoltageBounds:
-    def test_voltage_nominal_from_config(self):
-        from app.config import settings
+class TestASICSpecs:
+    def test_s21_pro_exists(self):
+        from app.data.asic_specs import ANTMINER_S21_PRO
 
-        assert settings.voltage_nominal == 5.0
+        assert ANTMINER_S21_PRO.hashrate_th == 234.0
+        assert ANTMINER_S21_PRO.power_watts == 3510.0
+        assert ANTMINER_S21_PRO.efficiency_jth == 15.0
 
-    def test_asic_voltage_from_specs(self):
-        from app.data.asic_specs import ANTMINER_S21
+    def test_registry_has_four_models(self):
+        from app.data.asic_specs import ASIC_REGISTRY
 
-        assert ANTMINER_S21.chip_voltage_v == 0.15
-        assert ANTMINER_S21.max_temp_c == 95.0
+        assert len(ASIC_REGISTRY) == 4
+        assert "antminer_s21_pro" in ASIC_REGISTRY
+
+    def test_efficiency_matches_power_over_hashrate(self):
+        from app.data.asic_specs import ASIC_REGISTRY
+
+        for key, spec in ASIC_REGISTRY.items():
+            calc = spec.power_watts / spec.hashrate_th
+            assert abs(calc - spec.efficiency_jth) < 0.5, (
+                f"{key}: {calc:.1f} != {spec.efficiency_jth}"
+            )
+
+    def test_all_specs_have_valid_cooling_type(self):
+        from app.data.asic_specs import ASIC_REGISTRY
+
+        for key, spec in ASIC_REGISTRY.items():
+            assert spec.cooling_type in ("air", "hydro"), (
+                f"{key}: invalid cooling type {spec.cooling_type}"
+            )

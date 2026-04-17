@@ -69,7 +69,7 @@ class SyntheticDataGenerator:
         failure_types = ["thermal", "hashboard", "psu"]
 
         for i in range(self.fleet_size):
-            model_key = self.rng.choice(model_keys, p=[0.5, 0.25, 0.25])
+            model_key = self.rng.choice(model_keys, p=[0.20, 0.35, 0.20, 0.25])
             spec = ASIC_REGISTRY[model_key]
             age = self.rng.uniform(0, 365)
             months = age / 30.0
@@ -178,12 +178,10 @@ class SyntheticDataGenerator:
 
         for t in range(n):
             if t == 0:
-                chip_temp[t] = (
-                    ambient[t] + power[t] * r_thermal * 1000 / spec.power_watts
-                )
+                chip_temp[t] = ambient[t] + power[t] * r_thermal
             else:
                 fan_cooling = fan_speed[t - 1] / 6000.0 * 15.0
-                heat_input = power[t] * r_thermal * 1000 / spec.power_watts
+                heat_input = power[t] * r_thermal
                 chip_temp[t] = 0.9 * chip_temp[t - 1] + 0.1 * (
                     ambient[t] + heat_input - fan_cooling
                 )
@@ -266,7 +264,7 @@ class SyntheticDataGenerator:
         if not miner.is_healthy and miner.failure_onset_step is not None:
             onset = miner.failure_onset_step
             pre_start = max(0, onset - self.steps_per_day)
-            df.loc[pre_start : onset + fail_duration, "is_pre_failure"] = True
+            df.loc[pre_start : max(pre_start, onset - 1), "is_pre_failure"] = True
 
         return df
 
