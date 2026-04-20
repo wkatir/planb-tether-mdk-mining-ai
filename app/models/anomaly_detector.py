@@ -92,7 +92,7 @@ class AnomalyDetector:
             for batch in X:
                 batch = batch.unsqueeze(0)
                 recon = self.model(batch)
-                loss = criterion(recon, batch.squeeze(0))
+                loss = criterion(recon, batch)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -108,7 +108,7 @@ class AnomalyDetector:
             for seq in X:
                 seq = seq.unsqueeze(0)
                 recon = self.model(seq)
-                err = criterion(recon, seq.squeeze(0)).item()
+                err = criterion(recon, seq).item()
                 errors.append(err)
 
         self.threshold = float(np.percentile(errors, 95))

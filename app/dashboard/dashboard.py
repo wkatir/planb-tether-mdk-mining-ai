@@ -1,11 +1,19 @@
 """
-src/dashboard/app.py — MDK Mining AI Streamlit Dashboard
+app/dashboard/dashboard.py — MDK Mining AI Streamlit Dashboard
 
-Connects to PostgreSQL via SQLAlchemy.
+Connects to DuckDB for embedded analytics.
 Tabs: Fleet Overview, Device Detail, KPI Trends, AI Insights
 """
 
-from sqlalchemy import create_engine, text
+import sys
+from pathlib import Path
+
+# Ensure project root is importable when launched via `streamlit run`
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+import duckdb
 import plotly.express as px
 import streamlit as st
 import pandas as pd
@@ -13,18 +21,17 @@ import pandas as pd
 from app.config import settings
 
 
-def get_db_connection():
-    return create_engine(settings.DATABASE_URL)
-
-
 @st.cache_data(ttl=60)
-def query(sql: str, _params: tuple | None = None) -> pd.DataFrame:
-    """Cached DB query. TTL=60s. Use _params as tuple for hashability."""
-    engine = get_db_connection()
-    with engine.connect() as conn:
-        params_dict = dict(_params) if _params else None
-        df = pd.read_sql(text(sql), conn, params=params_dict)
-    engine.dispose()
+def query(sql: str, params: tuple | None = None) -> pd.DataFrame:
+    """Cached DB query. TTL=60s."""
+    conn = duckdb.connect(str(settings.DUCKDB_PATH), read_only=True)
+    try:
+        if params:
+            df = conn.execute(sql, list(params)).fetchdf()
+        else:
+            df = conn.execute(sql).fetchdf()
+    finally:
+        conn.close()
     return df
 
 
@@ -32,9 +39,9 @@ st.set_page_config(page_title="MDK Mining AI", page_icon="⛏️", layout="wide"
 st.title("MDK Mining AI Dashboard")
 
 try:
-    q = query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'kpi'")
+    q = query("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_name = 'kpi'")
     tables_exist = q.iloc[0, 0] > 0
-except:
+except Exception:
     tables_exist = False
 
 if not tables_exist:
@@ -109,10 +116,10 @@ with tab2:
             """
             SELECT asic_hashrate_th, chip_temperature_c, asic_power_w,
                    true_efficiency_jth, economic_te, fan_speed_rpm, error_count, model
-            FROM kpi WHERE device_id = :device_id
+            FROM kpi WHERE device_id = $1
             ORDER BY timestamp DESC LIMIT 1
         """,
-            _params=(("device_id", selected),),
+            params=(selected,),
         ).iloc[0]
 
         col1, col2, col3, col4 = st.columns(4)
@@ -131,9 +138,9 @@ with tab2:
         ts_data = query(
             """
             SELECT timestamp, asic_hashrate_th, chip_temperature_c, asic_power_w
-            FROM kpi WHERE device_id = :device_id ORDER BY timestamp
+            FROM kpi WHERE device_id = $1 ORDER BY timestamp
         """,
-            _params=(("device_id", selected),),
+            params=(selected,),
         )
 
         tab_h, tab_t, tab_p = st.tabs(["Hashrate", "Temperature", "Power"])
@@ -206,7 +213,7 @@ with tab4:
     with col2:
         st.subheader("Miners at Risk")
         at_risk = query("""
-            SELECT device_id, model, AVG(chip_temperature_c) as temp, 
+            SELECT device_id, model, AVG(chip_temperature_c) as temp,
                    AVG(error_count) as errors, AVG(true_efficiency_jth) as te
             FROM kpi WHERE true_efficiency_jth IS NOT NULL
             GROUP BY device_id, model
@@ -218,7 +225,7 @@ with tab4:
     st.subheader("Recommended Actions")
     actions = query("""
         SELECT device_id, model,
-               CASE 
+               CASE
                    WHEN AVG(chip_temperature_c) > 85 THEN 'Review cooling'
                    WHEN AVG(error_count) > 30 THEN 'Check hardware'
                    ELSE 'Normal operation'

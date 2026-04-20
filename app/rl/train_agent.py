@@ -14,20 +14,23 @@ except ImportError as e:
 from app.rl.mining_env import MiningEnv
 
 
-def load_training_data(duckdb_path: str = "./data/mining.duckdb"):
+def load_training_data(duckdb_path: str | None = None):
+    if duckdb_path is None:
+        from app.config import settings
+        duckdb_path = str(settings.DUCKDB_PATH)
     try:
         conn = duckdb.connect(duckdb_path, read_only=True)
         query = """
-            SELECT 
-                hashrate,
-                power,
-                temp,
-                fan_speed as fan,
-                voltage,
-                errors,
-                ambient_temp,
-                energy_price,
-                efficiency
+            SELECT
+                asic_hashrate_th AS hashrate,
+                asic_power_w AS power,
+                chip_temperature_c AS temp,
+                fan_speed_rpm AS fan,
+                asic_voltage_mv AS voltage,
+                error_count AS errors,
+                ambient_temperature_c AS ambient_temp,
+                energy_price_kwh AS energy_price,
+                true_efficiency_jth AS efficiency
             FROM kpi
             ORDER BY timestamp
         """
@@ -127,7 +130,8 @@ def train_ppo(
 if __name__ == "__main__":
     logger.info("=== Module 12: PPO Training ===")
 
-    duckdb_path = "./data/mining.duckdb"
+    from app.config import settings
+    duckdb_path = str(settings.DUCKDB_PATH)
     if os.path.exists(duckdb_path):
         logger.info("Loading data from DuckDB...")
         training_data = load_training_data(duckdb_path)

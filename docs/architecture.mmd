@@ -11,11 +11,14 @@ graph TD
     end
 
     subgraph AI["AI Controller - Python Prototype"]
-        ING["Telemetry Ingestion\nFastAPI + Pydantic"]
-        FE["Feature Engineering\nPostgreSQL Window Functions"]
+        ING["Telemetry Ingestion\nPydantic Validation"]
+        DB["DuckDB\nEmbedded Analytics"]
+        FE["Feature Engineering\nWindow Functions"]
         KPI["KPI Engine\nTE | ETE | Profit Density"]
         AD["Anomaly Detector\nLSTM Autoencoder"]
+        IF["Isolation Forest\nFast Outlier Detection"]
         FC["Failure Classifier\nXGBoost + SHAP"]
+        HS["Health Score\nEnsemble: 0.4xAD + 0.6xFC + IF"]
         RL["RL Agent\nPPO via Stable-Baselines3"]
         DE["Decision Engine\nSafety Layer"]
         LLM["Local LLM\nGemma 4 E4B via Ollama"]
@@ -31,14 +34,18 @@ graph TD
     SENS -->|"Sensor data"| WORK
     WORK --> HB
     WORK -->|"HRPC"| HRPC
-    HRPC -->|"REST / HRPC"| ING
-    ING --> FE
+    HRPC -->|"Parquet / HRPC"| ING
+    ING --> DB
+    DB --> FE
     FE --> KPI
     FE --> AD
+    FE --> IF
     FE --> FC
+    AD --> HS
+    IF --> HS
+    FC --> HS
     KPI --> RL
-    AD --> DE
-    FC --> DE
+    HS --> DE
     RL --> DE
     DE --> CMD
     CMD -->|"Set clock/voltage/fan"| WORK

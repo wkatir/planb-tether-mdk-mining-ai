@@ -1,10 +1,12 @@
 """
-src/pipeline/kpi.py — True Efficiency (TE) and Economic True Efficiency (ETE) KPI engine.
+app/pipeline/kpi.py — True Efficiency (TE) and Economic True Efficiency (ETE) KPI engine.
 """
 
+from pathlib import Path
+
+import duckdb
 import pandas as pd
 from loguru import logger
-from sqlalchemy import create_engine, text
 
 from app.config import settings
 
@@ -12,24 +14,29 @@ from app.config import settings
 class KPIEngine:
     """Compute True Efficiency and Economic True Efficiency KPIs."""
 
-    def __init__(self, database_url: str = settings.DATABASE_URL):
-        self.database_url = database_url
-        self.engine = create_engine(database_url)
+    def __init__(self, duckdb_path: Path = settings.DUCKDB_PATH):
+        self.duckdb_path = Path(duckdb_path)
+        self.conn = duckdb.connect(str(self.duckdb_path))
 
     def compute_te(self, cooling_power_kw: float = 50.0) -> None:
         """Compute True Efficiency for all records."""
         logger.info("Computing True Efficiency (TE)...")
 
         cooling_w = cooling_power_kw * 1000.0
+        eta_env_min = settings.TE_ETA_ENV_MIN
+        te_beta = settings.TE_BETA
+        temp_reference = settings.TEMP_REFERENCE
+        aux_power_pct = settings.AUX_POWER_PCT
 
-        create_kpi_sql = text(f"""
-            CREATE TABLE IF NOT EXISTS kpi AS
+        self.conn.execute("DROP TABLE IF EXISTS kpi")
+        self.conn.execute(f"""
+            CREATE TABLE kpi AS
             SELECT
                 fe.*,
 
                 GREATEST(
-                    :eta_env_min,
-                    1.0 - :te_beta * (ambient_temperature_c - :temp_reference)
+                    {eta_env_min},
+                    1.0 - {te_beta} * (ambient_temperature_c - {temp_reference})
                 ) AS eta_env,
 
                 CASE operating_mode
@@ -39,36 +46,22 @@ class KPIEngine:
                     ELSE 1.00
                 END AS eta_mode,
 
-                :cooling_w * (asic_power_w / SUM(asic_power_w) OVER wtime)
+                {cooling_w} * (asic_power_w / SUM(asic_power_w) OVER wtime)
                     AS p_cooling_alloc,
 
-                asic_power_w * :aux_power_pct AS p_aux
+                asic_power_w * {aux_power_pct} AS p_aux
 
             FROM features_enriched fe
             WINDOW wtime AS (PARTITION BY DATE_TRUNC('minute', timestamp))
         """)
 
-        with self.engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS kpi"))
-            conn.execute(
-                create_kpi_sql,
-                {
-                    "eta_env_min": settings.TE_ETA_ENV_MIN,
-                    "te_beta": settings.TE_BETA,
-                    "temp_reference": settings.TEMP_REFERENCE,
-                    "cooling_w": cooling_w,
-                    "aux_power_pct": settings.AUX_POWER_PCT,
-                },
-            )
-            conn.commit()
-
-        add_columns_sql = text("""
-            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS true_efficiency_jth FLOAT;
-            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS economic_te FLOAT;
-            ALTER TABLE kpi ADD COLUMN IF NOT EXISTS profit_density FLOAT
+        self.conn.execute("""
+            ALTER TABLE kpi ADD COLUMN true_efficiency_jth DOUBLE;
+            ALTER TABLE kpi ADD COLUMN economic_te DOUBLE;
+            ALTER TABLE kpi ADD COLUMN profit_density DOUBLE;
         """)
 
-        update_kpi_sql = text("""
+        self.conn.execute("""
             UPDATE kpi SET
                 true_efficiency_jth = CASE
                     WHEN asic_hashrate_th > 0 AND eta_env > 0 AND eta_mode > 0
@@ -99,14 +92,6 @@ class KPIEngine:
                     ELSE NULL
                 END
         """)
-
-        with self.engine.connect() as conn:
-            try:
-                conn.execute(add_columns_sql)
-            except Exception:
-                pass
-            conn.execute(update_kpi_sql)
-            conn.commit()
 
         stats = self.query("""
             SELECT
@@ -146,11 +131,10 @@ class KPIEngine:
 
     def query(self, sql: str) -> pd.DataFrame:
         """Execute a SQL query and return as DataFrame."""
-        with self.engine.connect() as conn:
-            return pd.read_sql(text(sql), conn)
+        return self.conn.execute(sql).fetchdf()
 
     def close(self) -> None:
-        self.engine.dispose()
+        self.conn.close()
 
 
 if __name__ == "__main__":

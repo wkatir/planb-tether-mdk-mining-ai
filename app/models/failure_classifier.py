@@ -85,6 +85,7 @@ class FailureClassifier:
                 class_id=0, class_name="normal", confidence=0.0, probabilities={0: 1.0}
             )
 
+        X = X.reshape(1, -1) if X.ndim == 1 else X
         proba = self.model.predict_proba(X)
         probs = proba[0] if proba.ndim > 1 else proba
         class_id = int(np.argmax(probs))

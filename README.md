@@ -16,17 +16,13 @@ This system simulates a fleet of ASIC miners (Antminer S21, S21 XP, M60S) and pr
 │                     MDK Mining AI                            │
 ├─────────────────────────────────────────────────────────────┤
 │  Synthetic Data    │  Data Pipeline  │  ML Models          │
-│  Generator          │  PostgreSQL     │  LSTM Autoencoder   │
+│  Generator          │  DuckDB         │  LSTM Autoencoder   │
 │  (Parquet)         │  Features      │  XGBoost Classifier │
 │                    │  KPIs          │  Health Score       │
 ├─────────────────────────────────────────────────────────────┤
 │  RL Agent (PPO)    │  Decision Engine (Safety Layer)        │
 ├─────────────────────────────────────────────────────────────┤
-│  FastAPI REST API  │  Streamlit Dashboard                  │
-│  /api/v1/telemetry │  Fleet Monitoring                     │
-│  /api/v1/kpi      │  Anomaly Detection                   │
-│  /api/v1/health    │  Control Recommendations             │
-│  /api/v1/control   │                                       │
+│  Streamlit Dashboard — Fleet Monitoring                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -34,64 +30,38 @@ This system simulates a fleet of ASIC miners (Antminer S21, S21 XP, M60S) and pr
 
 ### Prerequisites
 - Python 3.11+
-- PostgreSQL 16+
-- Docker (optional)
 
-### Local Development
+### Setup & Run
 
 ```bash
 # Install dependencies
 uv sync
 
-# Start PostgreSQL
-docker-compose up -d db
-
 # Set environment
 cp .env.example .env
 
-# Generate synthetic telemetry (50 miners, 30 days)
-python -m app.data.generator
+# Option A: Run entire pipeline in one command
+python -m app.run_all
 
-# Ingest into PostgreSQL
-python -m app.pipeline.ingestion
+# Option B: Quick demo (5 miners, 1 day)
+python -m app.run_all --fleet-size 5 --days 1
 
-# Compute rolling features
-python -m app.pipeline.features
+# Option C: Run steps individually
+python -m app.data.generator          # Generate synthetic telemetry
+python -m app.pipeline.ingestion      # Ingest into DuckDB
+python -m app.pipeline.features       # Compute rolling features
+python -m app.pipeline.kpi            # Compute KPIs (TE, ETE, PD)
+python -m app.models.train_models     # Train ML models (LSTM, IF, XGBoost)
 
-# Compute KPIs (True Efficiency, ETE)
-python -m app.pipeline.kpi
-
-# Start API
-uvicorn app.api.main:app --reload --port 8000
-
-# Start dashboard (new terminal)
-streamlit run app.dashboard.app --server.port 8501
-```
-
-### Docker
-
-```bash
-# Build and start all services
-docker-compose up --build
-
-# API: http://localhost:8000
-# Dashboard: http://localhost:8501
+# Start dashboard
+streamlit run app/dashboard/dashboard.py
 ```
 
 ## Project Structure
 
 ```
 app/
-├── api/                    # FastAPI REST API
-│   ├── main.py            # App entry point, routes
-│   ├── schemas.py         # Pydantic request/response models
-│   ├── dependencies.py    # Database session management
-│   └── routes/
-│       ├── telemetry.py   # /api/v1/telemetry
-│       ├── kpi.py         # /api/v1/kpi
-│       ├── health.py      # /api/v1/health
-│       └── control.py     # /api/v1/control
-├── config.py              # Settings (DB URL, physical constants)
+├── config.py              # Settings (DuckDB path, physical constants)
 ├── control/
 │   └── decision_engine.py # Safety checks + RL integration
 ├── dashboard/
@@ -101,10 +71,12 @@ app/
 │   └── generator.py       # Synthetic data generation
 ├── models/
 │   ├── anomaly_detector.py  # LSTM autoencoder (PyTorch)
+│   ├── isolation_forest.py  # Isolation Forest (scikit-learn)
 │   ├── failure_classifier.py # XGBoost multi-class
-│   └── health_score.py    # Combined anomaly + failure score
+│   ├── health_score.py    # Combined anomaly + failure score
+│   └── train_models.py    # End-to-end ML training pipeline
 ├── pipeline/
-│   ├── ingestion.py       # Parquet → PostgreSQL
+│   ├── ingestion.py       # Parquet → DuckDB
 │   ├── features.py        # Rolling statistics, z-scores
 │   └── kpi.py            # True Efficiency & ETE KPIs
 └── rl/
@@ -115,9 +87,6 @@ data/
 ├── raw/                   # Synthetic telemetry (Parquet)
 └── processed/            # Engineered features
 
-docker-compose.yml         # API + PostgreSQL services
-Dockerfile                 # API container image
-alembic/                  # Database migrations
 pyproject.toml            # Dependencies
 .env.example               # Environment template
 ```
@@ -126,24 +95,11 @@ pyproject.toml            # Dependencies
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/app` | PostgreSQL connection |
+| `DUCKDB_PATH` | `./data/mining.duckdb` | DuckDB database file path |
 | `APP_ENV` | `development` | Environment (development/production) |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `FLEET_SIZE` | `50` | Number of miners to simulate |
 | `SIMULATION_DAYS` | `30` | Days of historical data |
-| `API_PORT` | `8000` | FastAPI server port |
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/telemetry` | Fleet telemetry with pagination |
-| GET | `/api/v1/telemetry/{device_id}` | Single device history |
-| GET | `/api/v1/kpi` | Fleet KPIs (efficiency, hashrate) |
-| GET | `/api/v1/kpi/fleet` | Aggregate fleet statistics |
-| GET | `/api/v1/health` | Overall fleet health score |
-| GET | `/api/v1/health/{device_id}` | Single device health |
-| POST | `/api/v1/control/recommend` | Get overclock/underclock recommendation |
 
 ## ML Models
 
@@ -151,7 +107,12 @@ pyproject.toml            # Dependencies
 - Architecture: 64→32→16→32→64 neurons with LSTM layers
 - Trained on normal operating data
 - Reconstruction error threshold detects anomalies
-- Input: 10-feature rolling window (temp, voltage, power, hashrate, etc.)
+- Input: 48-timestep sequences of 7 features (temp, power, hashrate, voltage, fan, errors, ambient)
+
+### Anomaly Detector (Isolation Forest)
+- Unsupervised ensemble detector (200 estimators, 5% contamination)
+- Complements LSTM: catches global multivariate outliers fast
+- Ensemble agreement between LSTM + IF = high confidence anomaly
 
 ### Failure Classifier (XGBoost)
 - Multi-class: `normal`, `overheating`, `power_issue`, `hashboard_failure`, `fan_failure`
@@ -159,7 +120,7 @@ pyproject.toml            # Dependencies
 - Probability output for pre-failure warning
 
 ### Health Score
-- Combined score: `0.4 * anomaly_score + 0.6 * failure_probability`
+- Combined score: `1.0 - (0.4 * anomaly_score + 0.6 * failure_probability)`
 - Aggregated at device and fleet level
 
 ## RL Agent (PPO)
@@ -174,13 +135,18 @@ pyproject.toml            # Dependencies
 
 ### True Efficiency (TE)
 ```
-TE = hashrate / (power * (1 + temp_factor))
-temp_factor = beta * max(0, temp - reference_temp)
+TE = (P_asic + P_cooling + P_aux) / (H * eta_env * eta_mode)
+eta_env = max(0.70, 1.0 - 0.008 * (T_ambient - 25))
 ```
 
-### Energy-to-Efficiency (ETE)
+### Economic True Efficiency (ETE)
 ```
-ETE = (power * electricity_price) / hashrate
+ETE = (0.024 * TE * energy_price) / (hashprice / 1000)
+```
+
+### Profit Density (PD)
+```
+PD = (daily_revenue - daily_cost) / P_total  [$/W/day]
 ```
 
 ## ASIC Specifications

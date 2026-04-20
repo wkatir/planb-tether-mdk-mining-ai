@@ -1,29 +1,30 @@
 """
-src/pipeline/features.py — Feature engineering for ML models.
+app/pipeline/features.py — Feature engineering for ML models.
 """
 
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 from loguru import logger
-from sqlalchemy import create_engine, text
 
 from app.config import settings
 
 
 class FeatureEngineering:
-    """Compute ML features from raw telemetry stored in PostgreSQL."""
+    """Compute ML features from raw telemetry stored in DuckDB."""
 
-    def __init__(self, database_url: str = settings.DATABASE_URL):
-        self.database_url = database_url
-        self.engine = create_engine(database_url)
+    def __init__(self, duckdb_path: Path = settings.DUCKDB_PATH):
+        self.duckdb_path = Path(duckdb_path)
+        self.conn = duckdb.connect(str(self.duckdb_path))
 
     def compute_rolling_features(self) -> None:
-        """Add rolling window features using PostgreSQL window functions."""
+        """Add rolling window features using DuckDB window functions."""
         logger.info("Computing rolling features...")
 
-        create_features_sql = text("""
-            CREATE TABLE IF NOT EXISTS features AS
+        self.conn.execute("DROP TABLE IF EXISTS features")
+        self.conn.execute("""
+            CREATE TABLE features AS
             SELECT
                 t.*,
 
@@ -53,7 +54,7 @@ class FeatureEngineering:
                     ELSE NULL
                 END AS actual_efficiency_jth,
 
-                SUM(error_count::INT) OVER w60 AS errors_1h,
+                SUM(CAST(error_count AS INTEGER)) OVER w60 AS errors_1h,
 
                 fan_speed_rpm / 6000.0 AS fan_utilization
 
@@ -64,21 +65,16 @@ class FeatureEngineering:
                 w60 AS (PARTITION BY device_id ORDER BY timestamp ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
         """)
 
-        with self.engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS features"))
-            conn.execute(create_features_sql)
-            conn.commit()
-
-        count_df = self.query("SELECT COUNT(*) FROM features")
-        count = count_df.iloc[0, 0]
+        count = self.conn.execute("SELECT COUNT(*) FROM features").fetchone()[0]
         logger.info(f"Feature table created with {count:,} rows")
 
     def compute_cross_device_features(self) -> None:
         """Add features comparing each device to fleet average."""
         logger.info("Computing cross-device z-scores...")
 
-        create_enriched_sql = text("""
-            CREATE TABLE IF NOT EXISTS features_enriched AS
+        self.conn.execute("DROP TABLE IF EXISTS features_enriched")
+        self.conn.execute("""
+            CREATE TABLE features_enriched AS
             SELECT
                 f.*,
 
@@ -105,11 +101,6 @@ class FeatureEngineering:
             WINDOW wtime AS (PARTITION BY DATE_TRUNC('minute', timestamp))
         """)
 
-        with self.engine.connect() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS features_enriched"))
-            conn.execute(create_enriched_sql)
-            conn.commit()
-
         logger.info("Cross-device features computed")
 
     def export_features(self, output_path: str | None = None) -> str:
@@ -125,11 +116,10 @@ class FeatureEngineering:
 
     def query(self, sql: str) -> pd.DataFrame:
         """Execute a SQL query and return as DataFrame."""
-        with self.engine.connect() as conn:
-            return pd.read_sql(text(sql), conn)
+        return self.conn.execute(sql).fetchdf()
 
     def close(self) -> None:
-        self.engine.dispose()
+        self.conn.close()
 
 
 if __name__ == "__main__":

@@ -116,7 +116,13 @@ The synthetic data generator encodes five physical correlations:
 4. **Degradation over time:** R_thermal increases +0.5%/month, error rate +2%/month
 5. **Failure injection:** 5% of fleet across thermal, hashboard, and PSU failure modes
 
-Pipeline stages: Parquet generation -> PostgreSQL ingestion with Pydantic validation -> Rolling window features (5-sample and 60-sample windows) -> Cross-device z-scores -> KPI computation (TE, ETE, PD).
+Pipeline stages:
+1. **Parquet generation** — synthetic telemetry with physics-based correlations
+2. **DuckDB ingestion** — with Pydantic validation for adversarial telemetry protection
+3. **Feature engineering** — rolling window statistics (5-sample and 60-sample), cross-device z-scores
+4. **KPI computation** — True Efficiency, Economic True Efficiency, Profit Density
+
+DuckDB was chosen as the storage engine for its alignment with MDK's embedded, local-first architecture. It requires no external services, runs as an in-process library, and provides full SQL analytics — a natural stepping stone toward Hyperbee in production.
 
 ## 4. AI/ML Approach
 
@@ -126,31 +132,46 @@ Pipeline stages: Parquet generation -> PostgreSQL ingestion with Pydantic valida
 - Trained exclusively on healthy device data (WHERE is_healthy = TRUE)
 - Detection: reconstruction error above 95th percentile threshold = anomaly
 - Input: 48-timestep sequences of 7 features (temp, power, hashrate, voltage, fan, errors, ambient)
+- Strength: captures temporal drift and subtle degradation patterns
 
-### 4.2 Failure Classification — XGBoost
+### 4.2 Anomaly Detection — Isolation Forest
+
+- Complementary unsupervised detector using scikit-learn's `IsolationForest`
+- 200 estimators, 5% contamination rate
+- Trained on the same healthy data as the LSTM Autoencoder
+- Strength: fast inference, catches global outliers that violate multivariate structure
+- **Ensemble logic:** when both LSTM and Isolation Forest flag an anomaly, confidence is high. When only one flags, the reading is treated as suspicious but not quarantined. This two-detector agreement reduces false positives.
+
+### 4.3 Failure Classification — XGBoost
 
 - Multi-class: normal (0), thermal (1), hashboard (2), PSU (3)
 - 28 features including rolling statistics, rates of change, and 5-sample moving averages
 - SHAP TreeExplainer provides feature importance for each prediction
 - Exportable to ONNX for edge deployment on MOS hardware
 
-### 4.3 Dynamic Control — PPO (Reinforcement Learning)
+### 4.4 Dynamic Control — PPO (Reinforcement Learning)
 
 - State: device telemetry + energy price + hashprice + health score
 - Actions: 15 discrete combinations of clock adjustment x voltage level
 - Reward: revenue - energy_cost - safety_penalty
 - Safety penalty: lambda x max(0, T_chip - 78) prevents thermal damage
 
-### 4.4 Health Score
+### 4.5 Health Score
 
-Combined metric: score = 1.0 - max(anomaly_score, max_failure_probability). Feeds into RL state as a real-time device health indicator.
+Combined metric integrating anomaly detection and failure prediction:
+
+    score = 1.0 - (0.4 x anomaly_score + 0.6 x max_failure_probability)
+
+The 0.4/0.6 weighting prioritizes failure prediction (directly actionable — tells you *what* is failing) over anomaly detection (exploratory — tells you something is *off*). The Isolation Forest provides a secondary confirmation signal: if both LSTM and IF agree on an anomaly, the health status is elevated to "critical" regardless of score.
+
+This feeds into the RL state as a real-time device health indicator and drives the dashboard's "Miners at Risk" panel.
 
 ## 5. Architecture & MDK Integration
 
 This Python prototype operates as an **adjacent analytics service** to MOS, not a replacement. In production deployment:
 
 - **Telemetry ingestion** interfaces with MDK Core via **HRPC** (Holepunch RPC)
-- **Time-series storage** migrates from PostgreSQL to **Hyperbee** (append-only, crash-resilient, optimized for time-series and P2P replication via Hyperswarm)
+- **Time-series storage** migrates from DuckDB to **Hyperbee** (append-only, crash-resilient, optimized for time-series and P2P replication via Hyperswarm). The prototype uses DuckDB as a local-first stepping stone — same embedded philosophy, just not yet P2P.
 - Each ASIC miner, PSU, and cooling unit maps to a **MDK worker** in the operational layer
 - ML models are exported to **ONNX** format for deployment as MOS **lib-workers** on edge hardware (Raspberry Pi-class devices)
 - Communication follows MDK's security model: **authenticated RPC, explicit interfaces only, least-privilege permissions**
@@ -185,7 +206,7 @@ The Decision Engine evaluates safety constraints BEFORE applying any AI-recommen
 
 ### 6.4 Adversarial Telemetry Protection
 
-Before feeding telemetry to the RL agent, data passes through Pydantic validation bounds (physical plausibility check) and the anomaly detector (statistical plausibility check). If both flag an anomaly, the reading is quarantined and the agent receives the last known-good state.
+Before feeding telemetry to the RL agent, data passes through Pydantic validation bounds (physical plausibility check) and the dual anomaly detectors — LSTM Autoencoder (temporal plausibility) and Isolation Forest (statistical plausibility). If both flag an anomaly, the reading is quarantined and the agent receives the last known-good state.
 
 ## 7. Operational Benefits
 
@@ -198,8 +219,8 @@ Based on simulated fleet data (50 miners, 30 days):
 
 ## 8. Future Work
 
-1. **Production MDK integration:** Replace REST API with HRPC protocol for sub-second latency
-2. **Hyperbee migration:** Move from PostgreSQL to append-only storage with P2P replication
+1. **Hyperbee migration:** Move from DuckDB to append-only P2P storage with Hyperswarm replication
+2. **HRPC integration:** Replace Parquet file ingestion with live HRPC telemetry from MDK workers
 3. **Multi-site orchestration:** Extend fleet-level optimization across geographically distributed sites
 4. **Heat reuse integration:** Incorporate thermal output as a revenue offset (miners are nearly 100% interruptible loads where all electricity becomes heat)
 5. **Halving-aware strategy:** Automatic fleet-wide mode adjustment when block subsidy halving events reduce Hash Price

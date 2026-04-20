@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from app.control.decision_engine import DecisionEngine; print\\('OK'\\)\")",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m streamlit run app/dashboard/app.py --server.port 8501 --server.headless true)",
+      "Bash(pip install *)",
+      "Bash(pkill -f streamlit)",
+      "Bash(python -m streamlit run app/dashboard/dashboard.py --server.port 8501 --server.headless true)"
+    ]
+  }
+}

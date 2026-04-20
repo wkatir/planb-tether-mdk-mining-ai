@@ -16,7 +16,7 @@ class ActionType(str, Enum):
     PLACEHOLDER = "placeholder"
 
 
-class ControlAction(TypedDict):
+class ControlCommand(TypedDict):
     action_type: ActionType
     clock_multiplier: float
     reason: str
@@ -53,13 +53,13 @@ class DecisionEngine:
         self._rl_agent_ready: bool = False
         logger.info("DecisionEngine initialized")
 
-    def get_action(self, device_id: str, state: DeviceState) -> ControlAction:
+    def get_action(self, device_id: str, state: DeviceState) -> ControlCommand:
         logger.debug(f"Evaluating action for device {device_id}")
         ai_action = self._get_ai_recommendation(state)
 
         if not self._apply_rate_limit(device_id):
             logger.info(f"Rate limit active for device {device_id}, returning NOOP")
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.NOOP,
                 clock_multiplier=1.0,
                 reason="rate_limited",
@@ -72,7 +72,8 @@ class DecisionEngine:
             logger.warning(
                 f"Safety override for device {device_id}: {safety_result.reason}"
             )
-            return ControlAction(
+            self._record_command(device_id, safety_result["action_type"])
+            return ControlCommand(
                 action_type=safety_result.action_type,
                 clock_multiplier=safety_result.clock_multiplier,
                 reason=safety_result.reason,
@@ -80,7 +81,8 @@ class DecisionEngine:
                 timestamp=datetime.now(),
             )
 
-        return ControlAction(
+        self._record_command(device_id, ai_action["action_type"])
+        return ControlCommand(
             action_type=ai_action.action_type,
             clock_multiplier=ai_action.clock_multiplier,
             reason=ai_action.reason,
@@ -89,14 +91,14 @@ class DecisionEngine:
         )
 
     def _check_safety(
-        self, action: ControlAction, state: DeviceState
-    ) -> ControlAction | None:
+        self, action: ControlCommand, state: DeviceState
+    ) -> ControlCommand | None:
         if state["temperature"] >= settings.TEMP_THROTTLE:
             logger.warning(
                 f"Temperature {state['temperature']}°C exceeds throttle threshold "
                 f"{settings.TEMP_THROTTLE}°C for device {state['device_id']}"
             )
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
                 clock_multiplier=0.8,
                 reason="temp_throttle",
@@ -114,7 +116,7 @@ class DecisionEngine:
                 f"Voltage deviation {voltage_deviation:.2%} exceeds tolerance "
                 f"{self.VOLTAGE_TOLERANCE:.2%} for device {state['device_id']}"
             )
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
                 clock_multiplier=0.9,
                 reason="voltage_protection",
@@ -134,7 +136,7 @@ class DecisionEngine:
                     if action.clock_multiplier < 1.0
                     else 1.0 + self.CLOCK_STEP_LIMIT
                 )
-                return ControlAction(
+                return ControlCommand(
                     action_type=ActionType.UNDERCLOCK
                     if action.clock_multiplier < 1.0
                     else ActionType.OVERCLOCK,
@@ -167,10 +169,10 @@ class DecisionEngine:
             last_action=action,
         )
 
-    def _get_ai_recommendation(self, state: DeviceState) -> ControlAction:
+    def _get_ai_recommendation(self, state: DeviceState) -> ControlCommand:
         if not self._rl_agent_ready:
             logger.debug("RL agent not ready, returning placeholder recommendation")
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.PLACEHOLDER,
                 clock_multiplier=1.0,
                 reason="rl_not_ready",
@@ -181,7 +183,7 @@ class DecisionEngine:
         health = state.get("health_score")
         if health is not None and health < 0.5:
             logger.debug(f"Low health score {health}, recommending underclock")
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
                 clock_multiplier=0.9,
                 reason="low_health",
@@ -192,7 +194,7 @@ class DecisionEngine:
         temp = state["temperature"]
         if temp > settings.TEMP_WARNING:
             logger.debug(f"Temperature {temp}°C above warning, recommending underclock")
-            return ControlAction(
+            return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
                 clock_multiplier=0.95,
                 reason="temp_warning",
@@ -201,7 +203,7 @@ class DecisionEngine:
             )
 
         logger.debug("RL agent recommending nominal operation")
-        return ControlAction(
+        return ControlCommand(
             action_type=ActionType.NOOP,
             clock_multiplier=1.0,
             reason="nominal",

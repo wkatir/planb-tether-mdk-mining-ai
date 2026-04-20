@@ -26,10 +26,7 @@ class Settings(BaseSettings):
     sample_interval_minutes: int = 1
     failure_injection_rate: float = 0.05
 
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
-
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@db:5432/app"
+    DUCKDB_PATH: Path = Path("./data/mining.duckdb")
 
     TEMP_NORMAL_MAX: float = 70.0
     TEMP_THROTTLE: float = 78.0

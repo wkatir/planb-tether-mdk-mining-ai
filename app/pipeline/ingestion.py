@@ -1,13 +1,13 @@
 """
-src/pipeline/ingestion.py — Data ingestion and validation pipeline.
+app/pipeline/ingestion.py — Data ingestion and validation pipeline.
 """
 
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from sqlalchemy import create_engine, text
 
 from app.config import settings
 
@@ -66,78 +66,70 @@ class TelemetryRecord(BaseModel):
 
 
 class DataIngestion:
-    """Ingests Parquet data into PostgreSQL with validation."""
+    """Ingests Parquet data into DuckDB with validation."""
 
-    def __init__(self, database_url: str = settings.DATABASE_URL):
-        self.database_url = database_url
-        self.engine = create_engine(database_url)
-        self._init_tables()
-
-    def _init_tables(self) -> None:
-        """Create tables if they don't exist."""
-        create_telemetry_sql = text("""
-            CREATE TABLE IF NOT EXISTS telemetry (
-                timestamp TIMESTAMP,
-                device_id VARCHAR,
-                model VARCHAR,
-                operating_mode VARCHAR,
-                asic_clock_freq_mhz FLOAT,
-                asic_voltage_mv FLOAT,
-                asic_power_w FLOAT,
-                chip_temperature_c FLOAT,
-                fan_speed_rpm FLOAT,
-                asic_hashrate_th FLOAT,
-                error_count SMALLINT,
-                ambient_temperature_c FLOAT,
-                energy_price_kwh FLOAT,
-                hashprice_ph_day FLOAT,
-                is_healthy BOOLEAN,
-                failure_type VARCHAR,
-                is_pre_failure BOOLEAN,
-                is_valid BOOLEAN DEFAULT TRUE
-            )
-        """)
-        with self.engine.connect() as conn:
-            conn.execute(create_telemetry_sql)
-            conn.commit()
-        logger.info("PostgreSQL telemetry table initialized")
+    def __init__(self, duckdb_path: Path = settings.DUCKDB_PATH):
+        self.duckdb_path = Path(duckdb_path)
+        self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = duckdb.connect(str(self.duckdb_path))
+        logger.info("DuckDB connection initialized")
 
     def ingest_parquet(self, parquet_path: Path) -> int:
-        """Ingest a Parquet file into PostgreSQL."""
+        """Ingest a Parquet file into DuckDB."""
         parquet_path = Path(parquet_path)
         if not parquet_path.exists():
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
 
-        df = pd.read_parquet(parquet_path)
-        df["is_valid"] = True
+        self.conn.execute("DROP TABLE IF EXISTS telemetry")
+        self.conn.execute("""
+            CREATE TABLE telemetry AS
+            SELECT
+                timestamp,
+                device_id,
+                model,
+                operating_mode,
+                asic_clock_freq_mhz::DOUBLE AS asic_clock_freq_mhz,
+                asic_voltage_mv::DOUBLE AS asic_voltage_mv,
+                asic_power_w::DOUBLE AS asic_power_w,
+                chip_temperature_c::DOUBLE AS chip_temperature_c,
+                fan_speed_rpm::DOUBLE AS fan_speed_rpm,
+                asic_hashrate_th::DOUBLE AS asic_hashrate_th,
+                error_count::INTEGER AS error_count,
+                ambient_temperature_c::DOUBLE AS ambient_temperature_c,
+                energy_price_kwh::DOUBLE AS energy_price_kwh,
+                hashprice_ph_day::DOUBLE AS hashprice_ph_day,
+                is_healthy::BOOLEAN AS is_healthy,
+                failure_type::VARCHAR AS failure_type,
+                is_pre_failure::BOOLEAN AS is_pre_failure,
+                TRUE AS is_valid
+            FROM read_parquet(?)
+        """, [str(parquet_path)])
 
-        with self.engine.connect() as conn:
-            df.to_sql("telemetry", conn, if_exists="append", index=False)
-            conn.commit()
-
-        count = self.query("SELECT COUNT(*) FROM telemetry").iloc[0, 0]
+        count = self.conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0]
         logger.info(f"Ingested {count:,} rows from {parquet_path}")
         return count
 
     def validate_bounds(self) -> dict:
         """Flag records with out-of-bounds values."""
-        update_sql = text(f"""
+        self.conn.execute(
+            """
             UPDATE telemetry
             SET is_valid = FALSE
-            WHERE chip_temperature_c > :temp_emergency
+            WHERE chip_temperature_c > $1
                OR chip_temperature_c < -10
                OR asic_power_w <= 0
                OR asic_hashrate_th < 0
-        """)
-        with self.engine.connect() as conn:
-            conn.execute(update_sql, {"temp_emergency": settings.TEMP_EMERGENCY})
-            conn.commit()
+            """,
+            [settings.TEMP_EMERGENCY],
+        )
 
-        invalid_count = self.query(
+        invalid_count = self.conn.execute(
             "SELECT COUNT(*) FROM telemetry WHERE is_valid = FALSE"
-        ).iloc[0, 0]
+        ).fetchone()[0]
 
-        total_count = self.query("SELECT COUNT(*) FROM telemetry").iloc[0, 0]
+        total_count = self.conn.execute(
+            "SELECT COUNT(*) FROM telemetry"
+        ).fetchone()[0]
 
         result = {
             "total_records": total_count,
@@ -152,12 +144,11 @@ class DataIngestion:
 
     def query(self, sql: str) -> pd.DataFrame:
         """Execute a SQL query and return as DataFrame."""
-        with self.engine.connect() as conn:
-            return pd.read_sql(text(sql), conn)
+        return self.conn.execute(sql).fetchdf()
 
     def close(self) -> None:
         """Close database connection."""
-        self.engine.dispose()
+        self.conn.close()
 
 
 if __name__ == "__main__":

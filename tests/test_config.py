@@ -30,9 +30,9 @@ class TestSettings:
         assert settings.sample_interval_minutes == 1
         assert settings.failure_injection_rate == 0.05
 
-    def test_api_config(self):
-        assert settings.api_host == "0.0.0.0"
-        assert settings.api_port == 8000
+    def test_duckdb_path(self):
+        assert isinstance(settings.DUCKDB_PATH, Path)
+        assert str(settings.DUCKDB_PATH).endswith("mining.duckdb")
 
     def test_data_paths_are_path_objects(self):
         assert isinstance(settings.data_dir, Path)

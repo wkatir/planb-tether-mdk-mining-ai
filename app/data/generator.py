@@ -1,5 +1,5 @@
 """
-src/data/generator.py — Synthetic ASIC telemetry data generator.
+app/data/generator.py — Synthetic ASIC telemetry data generator.
 """
 
 import numpy as np
