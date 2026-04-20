@@ -17,6 +17,7 @@ from app.rl.mining_env import MiningEnv
 def load_training_data(duckdb_path: str | None = None):
     if duckdb_path is None:
         from app.config import settings
+
         duckdb_path = str(settings.DUCKDB_PATH)
     try:
         conn = duckdb.connect(duckdb_path, read_only=True)
@@ -128,9 +129,8 @@ def train_ppo(
 
 
 if __name__ == "__main__":
-    logger.info("=== Module 12: PPO Training ===")
-
     from app.config import settings
+
     duckdb_path = str(settings.DUCKDB_PATH)
     if os.path.exists(duckdb_path):
         logger.info("Loading data from DuckDB...")

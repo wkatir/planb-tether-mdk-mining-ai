@@ -8,7 +8,6 @@ Tabs: Fleet Overview, Device Detail, KPI Trends, AI Insights
 import sys
 from pathlib import Path
 
-# Ensure project root is importable when launched via `streamlit run`
 _PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
@@ -39,7 +38,9 @@ st.set_page_config(page_title="MDK Mining AI", page_icon="⛏️", layout="wide"
 st.title("MDK Mining AI Dashboard")
 
 try:
-    q = query("SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_name = 'kpi'")
+    q = query(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_name = 'kpi'"
+    )
     tables_exist = q.iloc[0, 0] > 0
 except Exception:
     tables_exist = False

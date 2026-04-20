@@ -15,7 +15,11 @@ class TestIsolationForest:
         from app.models.isolation_forest import IsolationForestDetector
 
         rng = np.random.default_rng(42)
-        healthy = rng.normal(loc=[65, 3500, 200, 340, 3000, 0, 25], scale=[5, 100, 10, 10, 200, 1, 3], size=(500, 7))
+        healthy = rng.normal(
+            loc=[65, 3500, 200, 340, 3000, 0, 25],
+            scale=[5, 100, 10, 10, 200, 1, 3],
+            size=(500, 7),
+        )
 
         detector = IsolationForestDetector(contamination=0.05)
         detector.train(healthy.astype(np.float32))
@@ -33,7 +37,11 @@ class TestIsolationForest:
         from app.models.isolation_forest import IsolationForestDetector
 
         rng = np.random.default_rng(42)
-        healthy = rng.normal(loc=[65, 3500, 200, 340, 3000, 0, 25], scale=[5, 100, 10, 10, 200, 1, 3], size=(500, 7))
+        healthy = rng.normal(
+            loc=[65, 3500, 200, 340, 3000, 0, 25],
+            scale=[5, 100, 10, 10, 200, 1, 3],
+            size=(500, 7),
+        )
 
         detector = IsolationForestDetector(contamination=0.05)
         detector.train(healthy.astype(np.float32))
@@ -74,8 +82,10 @@ class TestHealthScore:
 
         anomaly = AnomalyResult(score=0.5, is_anomaly=True, threshold=0.3)
         failure = FailurePrediction(
-            class_id=1, class_name="thermal", confidence=0.8,
-            probabilities={0: 0.2, 1: 0.8}
+            class_id=1,
+            class_name="thermal",
+            confidence=0.8,
+            probabilities={0: 0.2, 1: 0.8},
         )
 
         score = hs.compute_health_score(anomaly, failure)
@@ -91,12 +101,14 @@ class TestHealthScore:
 
         anomaly = AnomalyResult(score=0.02, is_anomaly=False, threshold=0.3)
         failure = FailurePrediction(
-            class_id=0, class_name="normal", confidence=0.95,
-            probabilities={0: 0.95, 1: 0.03, 2: 0.01, 3: 0.01}
+            class_id=0,
+            class_name="normal",
+            confidence=0.95,
+            probabilities={0: 0.95, 1: 0.03, 2: 0.01, 3: 0.01},
         )
 
-        # max_failure_prob = 0.95 (class 0, "normal")
-        # score = 1.0 - (0.4*0.02 + 0.6*0.95) = 1.0 - 0.578 = 0.422
         status = hs.get_health_status(anomaly, failure)
         assert status.score > 0.3
-        assert status.predicted_failure is None, "Normal class should not predict failure"
+        assert status.predicted_failure is None, (
+            "Normal class should not predict failure"
+        )
