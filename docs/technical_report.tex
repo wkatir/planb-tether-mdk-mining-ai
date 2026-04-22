@@ -15,6 +15,8 @@
 \usepackage{longtable}
 \usepackage{graphicx}
 \usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta}
 \usepackage{listings}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -151,6 +153,24 @@ code: the ML layer owns every number (KPIs, health scores, SHAP), and the
 LLM only translates, summarises, and decides soft actions.
 
 \section{Layered Architecture}
+\begin{center}
+\begin{tikzpicture}[
+    stage/.style={draw, rounded corners=2pt, minimum width=1.9cm,
+                  minimum height=0.75cm, align=center, font=\scriptsize},
+    arr/.style={-{Stealth[length=1.8mm]}},
+    node distance=0.12cm
+]
+    \node[stage] (hw) {Hardware};
+    \node[stage, right=of hw] (tel) {Telemetry\\Pipeline};
+    \node[stage, right=of tel] (feat){Feature\\Processing};
+    \node[stage, right=of feat] (ai) {AI\\Controller};
+    \node[stage, right=of ai] (cmd) {Command\\Execution};
+    \draw[arr] (hw) -- (tel);
+    \draw[arr] (tel) -- (feat);
+    \draw[arr] (feat) -- (ai);
+    \draw[arr] (ai) -- (cmd);
+\end{tikzpicture}
+\end{center}
 \begin{lstlisting}
 L0  Hardware        ASIC fleet + site sensors
 L1  MDK Core (JS)   workers, HRPC, Hyperbee, Holepunch (Tether)
@@ -337,17 +357,17 @@ price awareness enables automatic low-power mode at peak rates
 the demand-response use case in Galt (2026).
 
 \section{Limitations and Future Work}
-LSTM Autoencoder training currently uses batch size 1 (a one-line fix with
-\texttt{DataLoader(batch\_size=32)} when GPU is available). PPO trains for
-100{,}000 steps against a simplified reward; production would require
-1--10 million steps with the true TE/ETE reward and a multi-miner joint
-action space. \texttt{MiningEnv} is single-spec; fleet-level joint training
-across heterogeneous miners requires a vectorised multi-spec environment.
-The LLM is hosted on NIM for the demo; portability to local Ollama is
-demonstrated. DuckDB is the local-first proxy for Hyperbee. Parquet
-ingestion is a PoC boundary; production would subscribe to HRPC topics.
-Heat-reuse revenue and halving-aware strategy adjustments are identified as
-next-iteration work.
+The PoC keeps several design simplifications intentional for scope. The RL
+agent trains against a simplified reward; a production deployment would use
+the full TE/ETE reward with a multi-miner joint action space.
+\texttt{MiningEnv} is single-spec; a vectorised multi-spec environment is
+required before heterogeneous fleets can be jointly optimised. Storage uses
+DuckDB as a local-first proxy for Hyperbee; the production target is
+Hyperbee with Holepunch replication. Ingestion is via Parquet; production
+would subscribe to HRPC telemetry topics. The LLM is hosted on NVIDIA NIM
+for demo portability, with local Ollama deployment demonstrated by a single
+env var swap. Heat-reuse revenue and halving-aware strategy adjustments are
+identified as next-iteration work.
 
 % ---- References (APA 7th) -------------------------------------------------
 \newpage
