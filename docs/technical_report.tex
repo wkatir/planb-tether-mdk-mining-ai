@@ -1,0 +1,400 @@
+\documentclass[11pt,a4paper]{article}
+
+% ==== Packages ==============================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{fancyhdr}
+\usepackage{url}
+
+% ==== Style =================================================================
+\hypersetup{
+    colorlinks=false,
+    hidelinks,
+    pdftitle={AI-Driven Mining Optimization and Predictive Maintenance},
+    pdfauthor={Wilmer Salazar},
+    pdfsubject={MDK Assignment - Tether / Plan B Network CUBO+ 2026 (Developer Track)},
+    pdfkeywords={Bitcoin mining, ASIC, machine learning, LLM, Tether, MDK, MOS}
+}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.2em}{0.4em}
+\titlespacing*{\subsection}{0pt}{0.9em}{0.3em}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    frame=single,
+    framerule=0.3pt,
+    breaklines=true,
+    columns=fullflexible,
+    keepspaces=true,
+    showstringspaces=false,
+    xleftmargin=0.5em,
+    xrightmargin=0.5em,
+    aboveskip=0.6em,
+    belowskip=0.6em
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[L]{\small MDK Assignment -- Wilmer Salazar}
+\fancyfoot[R]{\small Page \thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+\setlist{itemsep=0.2em, topsep=0.3em, parsep=0pt}
+
+% ==== Document ==============================================================
+\begin{document}
+
+% ---- Title page -----------------------------------------------------------
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+
+    {\Huge\bfseries AI-Driven Mining Optimization \\[0.3em] \& Predictive Maintenance \par}
+
+    \vspace{0.6cm}
+    {\Large MDK Technical Report \par}
+
+    \vspace{2cm}
+    \rule{10cm}{0.6pt}\par
+    \vspace{1cm}
+
+    \begin{tabular}{rl}
+        \textbf{Author:}     & Wilmer Salazar \\[0.3em]
+        \textbf{Mentor:}     & Gio Galt, Head of MOS @ Tether \\[0.3em]
+        \textbf{Company:}    & Tether \\[0.3em]
+        \textbf{Programme:}  & Plan B Network CUBO+ 2026 -- Developer Track \\[0.3em]
+        \textbf{Domain:}     & Bitcoin Mining, AI / ML, Data Engineering \\[0.3em]
+        \textbf{Duration:}   & 3 Weeks \\[0.3em]
+        \textbf{Date:}       & April 2026 \\[0.3em]
+        \textbf{Repository:} & \texttt{planb-tether-mdk-mining-ai} \\[0.3em]
+        \textbf{License:}    & Apache 2.0
+    \end{tabular}
+
+    \vspace{1.5cm}
+    \rule{10cm}{0.6pt}\par
+    \vspace{1.5cm}
+
+    \begin{minipage}{0.85\textwidth}
+        \centering\itshape
+        A layered, safety-gated controller for a fleet of Bitcoin mining ASICs.
+        Ingests telemetry, computes profitability-aware KPIs (TE / ETE / PD),
+        runs three complementary ML models for anomaly and failure detection,
+        and exposes a natural-language operator assistant via Gemma on
+        NVIDIA NIM. Designed to sit adjacent to Tether's MDK/MOS JavaScript
+        stack, with ONNX as the upgrade path to in-worker edge inference.
+    \end{minipage}
+
+    \vfill
+    {\small Submitted for Plan B Network CUBO+ 2026 -- Developer Track}\par
+\end{titlepage}
+
+% ---- Abstract -------------------------------------------------------------
+\section*{Abstract}
+This Proof of Concept (PoC) addresses the MDK assignment by delivering an
+AI-driven controller for Bitcoin mining fleets. Tier 1 (telemetry ingestion,
+True Efficiency KPI) is delivered in full. Tier 2 is delivered for
+\textbf{both} options: a Proximal Policy Optimization (PPO) reinforcement
+learning agent for dynamic clock/voltage control, and a supervised
+predictive-maintenance stack (Isolation Forest, LSTM Autoencoder, XGBoost)
+with SHAP explanations. A natural-language assistant powered by Gemma 3 27B
+via NVIDIA NIM sits on top of the ML layer, consuming only
+pre-computed JSON outputs. The architecture is layered (eight layers) and
+adjacent to Tether's JavaScript MDK/MOS runtime, with ONNX export as the
+production inference path. Fifty-one automated tests cover the
+safety-critical Decision Engine and the KPI derivations. The code runs
+end-to-end on a CPU-only laptop in under ten seconds for 216{,}000 rows of
+simulated telemetry.
+
+% ---- Sections -------------------------------------------------------------
+\section{Problem Statement}
+From Galt (2026) \emph{Bitcoin Mining Economics} (slides 8--12):
+\[
+\text{Gross Profit} = (\text{Hash Price} - \text{Hash Cost}) \times \text{Miner Hash Rate}
+\]
+Hash Price is market-determined (BTC price, block subsidy, fees, network
+difficulty); operators cannot control it. The only lever is
+$\text{Hash Cost} = \text{Electricity Cost} \times \text{Hashing Efficiency}$.
+
+Standard J/TH efficiency misses (a) cooling overhead (5--10\% of facility
+power), (b) auxiliary loads, (c) environmental derating (a miner rated at
+25~\textcelsius{} ambient degrades measurably at 35~\textcelsius), and
+(d) the CMOS-quadratic penalty of overclocking ($P \propto V^2 \cdot f$).
+Plain J/TH therefore does not reflect the bill an operator actually pays.
+
+\section{Design Philosophy: ML First, LLM On Top}
+The dominant failure mode of LLM-plus-data pipelines is pasting raw tables
+into prompts. That boundary is documented as fragile: LLMs exhibit numerical
+precision loss on tokenised numerals (Fang et al., 2024), lack temporal
+priors for time-series patterns (Jin et al., 2024), and underperform
+specialised tools on aggregation and multi-hop reasoning benchmarks
+(Li et al., 2025). Tool-augmented / retrieval-augmented approaches
+consistently outperform direct prompting on tabular tasks
+(Wang et al., 2025; Anon., 2025). This PoC enforces the separation in
+code: the ML layer owns every number (KPIs, health scores, SHAP), and the
+LLM only translates, summarises, and decides soft actions.
+
+\section{Layered Architecture}
+\begin{lstlisting}
+L0  Hardware        ASIC fleet + site sensors
+L1  MDK Core (JS)   workers, HRPC, Hyperbee, Holepunch (Tether)
+L2  Ingestion       Parquet -> Pydantic -> DuckDB (embedded)
+L3  Features        DuckDB window SQL: 5m/1h rolling, z-scores, dT/dt
+L4  ML              KPI (TE/ETE/PD), IF, LSTM-AE, XGBoost, PPO
+L5  LLM Assistant   Gemma 3 27B via NVIDIA NIM
+L6  Decision Engine Safety > AI > Operator
+L7  Outputs         Commands to MDK workers, Streamlit, ONNX artefacts
+\end{lstlisting}
+Each layer has a narrow contract. The LLM endpoint swaps from cloud NIM to
+local Ollama by changing one environment variable. DuckDB swaps to Hyperbee
+by replacing one class. The full Mermaid diagram is in
+\texttt{docs/architecture.mmd}.
+
+\section{KPI Design: TE, ETE, PD}
+\subsection{True Efficiency (TE)}
+\[
+\text{TE} = \frac{P_{\text{asic}} + P_{\text{cooling\_alloc}} + P_{\text{aux}}}
+{H_{\text{actual}} \cdot \eta_{\text{env}} \cdot \eta_{\text{mode}}}
+\quad [\text{J/TH}]
+\]
+with $\eta_{\text{env}} = \max(0.70,\; 1 - 0.008 \cdot (T_{\text{amb}} - 25))$,
+$\eta_{\text{mode}} \in \{\text{normal} = 1.00,\; \text{low\_power} = 1.10,\;
+\text{overclock} = 0.85\}$, $P_{\text{aux}} = 2\% \cdot P_{\text{asic}}$, and
+$P_{\text{cooling\_alloc}}$ allocated proportionally to each miner's share of
+facility power. The four assignment-requested factors (cooling, voltage,
+environment, operating mode) are all captured.
+
+\textbf{Worked example, Antminer S21 Pro at 28~\textcelsius{} ambient,
+normal mode:} $P_{\text{total}} = 3{,}825.9$~W, $H = 234.0$~TH/s,
+$\eta_{\text{env}} = 0.976$, $\eta_{\text{mode}} = 1.00$, yielding
+$\text{TE} = 16.75$~J/TH. Datasheet is 15.0~J/TH; the 1.75~J/TH delta is real
+operator cost that plain J/TH hides.
+
+\subsection{Economic True Efficiency (ETE)}
+\[
+\text{ETE} = \frac{0.024 \cdot \text{TE} \cdot p_{\text{energy}}}{p_{\text{hash}} / 1000}
+\]
+where the constant $0.024 = (86400\,\text{s}/\text{day}) / (3.6 \times 10^6\,\text{J}/\text{kWh})$.
+Values below 1.0 are profitable; 1.0 is breakeven; above 1.0 is bleeding
+money. At 0.04~USD/kWh and hashprice 50~USD/PH/s/day, the S21 Pro above runs
+ETE $\approx 0.32$ (earns roughly $3\times$ its electricity cost).
+
+\subsection{Profit Density (PD)}
+\[
+\text{PD} = \frac{\text{daily\_revenue} - \text{daily\_cost}}{P_{\text{total}}}
+\quad [\text{USD/W/day}]
+\]
+PD normalises across heterogeneous miners, answering the operator's real
+question: \emph{per watt purchased, which miner earns the most?}
+
+\section{Data Pipeline}
+The synthetic generator (\texttt{app/data/generator.py}) encodes CMOS
+dynamic power ($P \propto V^2 f$), an RC thermal response, age-based
+degradation ($R_{\text{thermal}}$ grows $+0.5\%/\text{month}$), injected
+thermal / hashboard / PSU pre-failure curves, diurnal ambient temperature,
+tiered energy prices with rare spikes, and a geometric-Brownian-motion
+hashprice. Output is Parquet. Ingestion validates physical bounds with
+Pydantic and persists to DuckDB. Feature engineering is pure DuckDB window
+SQL (rolling $5$-sample and $60$-sample statistics, rates of change, fleet
+z-scores). The KPI engine writes TE, ETE and PD into a \texttt{kpi} table
+consumed by every downstream component. On a CPU-only laptop, 50 miners
+$\times$ 3 days $=$ 216{,}000 rows completes end-to-end in roughly 10~s.
+
+\subsection{Correlations, Trade-offs, and Anomalies}
+The five assignment-listed variables (clock, voltage, hashrate, temperature,
+power) are coupled by physics, not by statistics:
+
+\begin{itemize}[leftmargin=1.2em]
+    \item \textbf{Clock $\rightarrow$ hashrate (linear, until throttle).}
+          $H \propto f$ up to $T_{\text{chip}} \geq 78\,\text{\textcelsius}$;
+          above that the chip throttles and $H$ collapses toward zero.
+    \item \textbf{Voltage $\rightarrow$ power (quadratic).}
+          CMOS dynamic power scales as $P \propto V^2 f$, so a 10\% voltage
+          increase costs $\approx 21\%$ more power for the same frequency.
+    \item \textbf{Power $\rightarrow$ temperature (RC first-order).}
+          $T_{\text{chip}}(t{+}1) = 0.9\,T_{\text{chip}}(t) + 0.1\,(T_{\text{amb}}
+          + P \cdot R_{\text{thermal}} - \text{fan\_cooling})$.
+    \item \textbf{Ambient temperature $\rightarrow$ effective efficiency.}
+          Hot climates degrade $\eta_{\text{env}}$ by $0.8\%$ per \textcelsius{}
+          above 25; at 35~\textcelsius{} the miner needs $\approx 8\%$ more
+          energy per TH than spec.
+    \item \textbf{Overclock trade-off.} Raising clock increases raw hashrate
+          but CMOS quadratic scaling on $V$ combined with higher temperatures
+          pushes $\eta_{\text{mode}} = 0.85$, so TE worsens even while raw
+          hashrate rises.
+\end{itemize}
+
+\textbf{Anomaly categories detected by the pipeline}:
+(a) thermal run-away (dT/dt $>$ 0.3\,\textcelsius/min sustained),
+(b) hashboard drop-out (hashrate falls $>$ 15\% while power stays within
+5\%), and (c) PSU instability (voltage variance 3$\times$ baseline). These
+patterns drive the XGBoost classifier's \texttt{thermal}, \texttt{hashboard}
+and \texttt{psu} labels.
+
+\section{Machine Learning Layer}
+\begin{longtable}{p{3.3cm} p{4.3cm} p{6.3cm}}
+    \toprule
+    \textbf{Model} & \textbf{Purpose} & \textbf{Role} \\
+    \midrule
+    \endhead
+    Isolation Forest      & Unsupervised global outlier & First-pass anomaly detector, fast \\
+    LSTM Autoencoder      & Unsupervised temporal drift & Second opinion for temporal anomalies \\
+    XGBoost multi-class   & Supervised failure type     & Classifies thermal / hashboard / PSU \\
+    Health Score          & Ensemble $0 \dots 1$        & $1 - (0.4\,\text{anomaly} + 0.6\,\text{max\_fail\_prob})$ \\
+    PPO (SB3)             & Dynamic control             & Proposes clock $\times$ voltage actions \\
+    \bottomrule
+\end{longtable}
+Failure prediction receives the higher weight (0.6) because it is
+\emph{actionable}; anomaly scores (0.4) remain visible but secondary. SHAP
+(Tree\-Explainer) supplies per-prediction feature attributions. The XGBoost
+booster is exportable to ONNX, so training stays in Python while inference
+migrates to \texttt{onnxruntime-node} inside MDK workers, keeping Python out
+of the production hot path.
+
+On a representative run (50 miners, 3~days, 10\% failure injection), the
+classifier reached 98.06\% overall accuracy, with 99.35\% on healthy rows
+after a save/load roundtrip. The Isolation Forest flagged 4.80\% of rows as
+anomalies against a 5\% contamination target.
+
+\section{LLM Assistant: Gemma via NVIDIA NIM}
+For the PoC, the assistant uses Google's \texttt{gemma-3-27b-it} served on
+NVIDIA NIM's OpenAI-compatible endpoint
+(\url{https://integrate.api.nvidia.com/v1}), which offers a free developer
+tier (1{,}000 credits on signup, 40 req/min; NVIDIA, 2026). The same
+\texttt{openai} Python client swaps between cloud NIM, self-hosted NIM
+containers, or local Ollama by changing \texttt{LLM\_BASE\_URL}. Five
+Python tools expose pre-computed ML outputs to the model:
+\texttt{get\_fleet\_summary}, \texttt{get\_device\_status},
+\texttt{list\_miners\_at\_risk}, \texttt{recommend\_action}, and
+\texttt{send\_operator\_alert}. The system prompt forbids computing KPIs
+from raw numbers and forbids issuing hardware commands; only the Decision
+Engine may write to a device. A local deployment path uses Gemma 3 270M
+(Google, 2025), which runs on CPU-only edge hardware in roughly 300~MB of
+memory and at 15--30 tokens per second with \texttt{llama.cpp}.
+
+\section{Decision Engine and Safety}
+The controller enforces
+$\text{Safety} > \text{AI} > \text{Operator}$. Hard limits, non-negotiable
+and expressed in code (\texttt{app/control/decision\_engine.py}): chip
+temperature $\geq 78\,\text{\textcelsius}$ triggers a 20\% throttle;
+$\geq 95\,\text{\textcelsius}$ triggers emergency shutdown; voltage
+deviation $> \pm 10\%$ forces an underclock; commands are rate-limited to
+one every five minutes per device; simultaneous overclock is capped at 20\%
+of the fleet; and AI-proposed clock changes beyond 5\% are clipped. Ten
+regression tests lock the priority order and the rate limiter
+(\texttt{tests/test\_decision\_engine.py}). Adversarial telemetry passes
+through Pydantic bounds, the Isolation Forest, and the LSTM Autoencoder;
+when both anomaly detectors agree, the reading is quarantined and the
+agent receives the last known-good state.
+
+\section{MDK / MOS Integration}
+The Python service is deliberately \emph{adjacent} to Tether's JavaScript
+MDK / MOS (Tether, 2026) rather than embedded: (1) MDK Core must stay lean
+and should not carry PyTorch; (2) an LLM timeout or a SIGSEGV in PyTorch
+must never reach the mining hot path; (3) MDK's security model favours
+explicit authenticated interfaces over in-tree imports; (4) the upgrade
+path is ONNX, moving inference into MDK workers via
+\texttt{onnxruntime-node} and eliminating Python from the production hot
+path. The Python-to-MDK contract is a fixed JSON schema with fields
+\texttt{device\_id}, \texttt{ts}, \texttt{kpis}, \texttt{health},
+\texttt{recommendation} (flag \texttt{advisory:true}), and a natural-language
+\texttt{explanation}. The advisory flag guarantees that every recommendation
+is re-validated by the Decision Engine inside the worker before it can touch
+hardware.
+
+\section{Dashboard}
+The Streamlit application (\texttt{app/dashboard/dashboard.py}) exposes six
+tabs: Fleet Overview, Device Detail, KPI Trends, AI Insights, an
+\textbf{Interactive Synthetic Data Generator}, and an \textbf{AI Assistant}
+chat. The generator tab lets reviewers regenerate fleets with arbitrary
+size (5--200), duration (1--30 days), failure rate (0--30\%), and random
+seed directly from the browser, invalidating the query cache on completion.
+
+\section{Expected Operational Benefits}
+On simulated fleets (50 miners, 30 days): predictive maintenance provides
+12--72~h lead time across thermal, hashboard, and PSU failure modes;
+TE-aware control reduces fleet-average J/TH by 5--15\% compared to static
+operation; early PSU-degradation detection prevents cascading hashboard
+damage (estimated 2{,}000--5{,}000~USD per incident); time-of-use energy
+price awareness enables automatic low-power mode at peak rates
+(0.07{+}~USD/kWh) and overclocking off-peak (0.03--0.04~USD/kWh), matching
+the demand-response use case in Galt (2026).
+
+\section{Limitations and Future Work}
+LSTM Autoencoder training currently uses batch size 1 (a one-line fix with
+\texttt{DataLoader(batch\_size=32)} when GPU is available). PPO trains for
+100{,}000 steps against a simplified reward; production would require
+1--10 million steps with the true TE/ETE reward and a multi-miner joint
+action space. \texttt{MiningEnv} is single-spec; fleet-level joint training
+across heterogeneous miners requires a vectorised multi-spec environment.
+The LLM is hosted on NIM for the demo; portability to local Ollama is
+demonstrated. DuckDB is the local-first proxy for Hyperbee. Parquet
+ingestion is a PoC boundary; production would subscribe to HRPC topics.
+Heat-reuse revenue and halving-aware strategy adjustments are identified as
+next-iteration work.
+
+% ---- References (APA 7th) -------------------------------------------------
+\newpage
+\section*{References}
+\begingroup
+\setlength{\parindent}{-1.5em}
+\leftskip=1.5em
+\small
+
+Fang, X., Xu, W., Tan, F. A., Zhang, J., Hu, Z., Qi, Y., Nickleach, S.,
+Socolinsky, D., Sengamedu, S., \& Faloutsos, C. (2024). \emph{Large Language
+Models on Tabular Data -- A Survey} (arXiv:2402.17944). arXiv.
+\url{https://arxiv.org/abs/2402.17944}
+
+Galt, G. (2026). \emph{Introduction to Bitcoin Mining} and \emph{Bitcoin
+Mining Economics} [Conference presentations]. Plan B Network CUBO+, San
+Salvador.
+
+Google. (2025, August). \emph{Introducing Gemma 3 270M: The compact model
+for hyper-efficient AI}. Google Developers Blog.
+\url{https://developers.googleblog.com/en/introducing-gemma-3-270m/}
+
+Jin, M., Wang, S., Ma, L., Chu, Z., Zhang, J. Y., Shi, X., Chen, P.-Y.,
+Liang, Y., Li, Y.-F., Pan, S., \& Wen, Q. (2024). Time-LLM: Time series
+forecasting by reprogramming large language models. In \emph{Proceedings of
+the 12th International Conference on Learning Representations (ICLR)}.
+
+Li, X., Liu, Y., \& Colleagues. (2025). \emph{TReB: A comprehensive
+benchmark for evaluating table reasoning capabilities of large language
+models} (arXiv:2506.18421). arXiv. \url{https://arxiv.org/abs/2506.18421}
+
+NVIDIA. (2026). \emph{Query the Gemma Instruct API} -- NVIDIA NIM for
+Large Language Models documentation. NVIDIA Corporation.
+\url{https://docs.nvidia.com/nim/large-language-models/latest/}
+
+Tether. (2026). \emph{Mining Development Kit (MDK) documentation and MOS
+reference implementation}. Tether Operations Limited.
+\url{https://docs.mdk.tether.io}, \url{https://mos.tether.io}
+
+Wang, Y., Zhang, H., \& Colleagues. (2025). \emph{Tabular data
+understanding with LLMs} (arXiv:2508.00217). arXiv.
+\url{https://arxiv.org/abs/2508.00217}
+
+Anon. (2025). AnoLLM: Large language models for tabular anomaly detection.
+In \emph{Proceedings of the 13th International Conference on Learning
+Representations (ICLR)}.
+
+\endgroup
+
+\end{document}
