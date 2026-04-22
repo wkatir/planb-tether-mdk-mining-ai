@@ -25,6 +25,7 @@ class FailureClassifier:
         self.model: xgb.XGBClassifier | None = None
         self.explainer: TreeExplainer | None = None
         self.is_trained: bool = False
+        self._encoded_to_canonical: dict[int, int] = {}
         self.feature_names: list[str] = [
             "temp",
             "power",
@@ -62,21 +63,30 @@ class FailureClassifier:
             logger.warning("Empty training data provided")
             return
 
-        n_classes = len(np.unique(y))
+        canonical_classes = sorted(int(c) for c in np.unique(y))
+        self._encoded_to_canonical = {
+            enc: canonical for enc, canonical in enumerate(canonical_classes)
+        }
+        canonical_to_encoded = {c: e for e, c in self._encoded_to_canonical.items()}
+        y_encoded = np.array([canonical_to_encoded[int(v)] for v in y], dtype=np.int32)
+
+        n_classes = len(canonical_classes)
         self.model = xgb.XGBClassifier(
             n_estimators=100,
             max_depth=6,
             learning_rate=0.1,
-            objective="multi:softprob",
-            num_class=n_classes,
-            use_label_encoder=False,
-            eval_metric="mlogloss",
+            objective="multi:softprob" if n_classes > 2 else "binary:logistic",
+            num_class=n_classes if n_classes > 2 else None,
+            eval_metric="mlogloss" if n_classes > 2 else "logloss",
             n_jobs=-1,
         )
-        self.model.fit(X, y)
+        self.model.fit(X, y_encoded)
         self.explainer = TreeExplainer(self.model)
         self.is_trained = True
-        logger.info(f"Training complete. Classes: {n_classes}")
+        logger.info(
+            f"Training complete. Canonical classes seen: {canonical_classes} "
+            f"(encoded as {list(range(n_classes))})"
+        )
 
     def predict(self, X: np.ndarray) -> FailurePrediction:
         if not self.is_trained or self.model is None:
@@ -88,14 +98,18 @@ class FailureClassifier:
         X = X.reshape(1, -1) if X.ndim == 1 else X
         proba = self.model.predict_proba(X)
         probs = proba[0] if proba.ndim > 1 else proba
-        class_id = int(np.argmax(probs))
-        confidence = float(probs[class_id])
+        encoded_class = int(np.argmax(probs))
+        confidence = float(probs[encoded_class])
 
-        prob_dict = {i: float(probs[i]) for i in range(len(probs))}
+        canonical_id = self._encoded_to_canonical.get(encoded_class, encoded_class)
+        prob_dict = {
+            self._encoded_to_canonical.get(i, i): float(probs[i])
+            for i in range(len(probs))
+        }
 
         return FailurePrediction(
-            class_id=class_id,
-            class_name=FAILURE_CLASSES.get(class_id, "unknown"),
+            class_id=canonical_id,
+            class_name=FAILURE_CLASSES.get(canonical_id, "unknown"),
             confidence=confidence,
             probabilities=prob_dict,
         )
@@ -108,11 +122,24 @@ class FailureClassifier:
         return self.explainer.shap_values(X)
 
     def save(self, path: Path | None = None) -> None:
+        import json as _json
+
         save_path = path or MODEL_PATH
         save_path.parent.mkdir(parents=True, exist_ok=True)
         if self.model is not None:
             self.model.save_model(str(save_path))
-            logger.info(f"Model saved to {save_path}")
+            meta_path = save_path.with_suffix(".meta.json")
+            with meta_path.open("w", encoding="utf-8") as fh:
+                _json.dump(
+                    {
+                        "encoded_to_canonical": {
+                            str(k): v for k, v in self._encoded_to_canonical.items()
+                        },
+                        "feature_names": self.feature_names,
+                    },
+                    fh,
+                )
+            logger.info(f"Model saved to {save_path} (+ {meta_path.name})")
 
     def export_onnx(self, path: Path | None = None) -> str:
         """Export to ONNX for MOS edge deployment."""
@@ -147,10 +174,30 @@ class FailureClassifier:
             )
             return cls()
 
+        import json as _json
+
         instance = cls()
         instance.model = xgb.XGBClassifier()
         instance.model.load_model(str(load_path))
         instance.explainer = TreeExplainer(instance.model)
         instance.is_trained = True
-        logger.info(f"Model loaded from {load_path}")
+
+        meta_path = load_path.with_suffix(".meta.json")
+        if meta_path.exists():
+            with meta_path.open(encoding="utf-8") as fh:
+                meta = _json.load(fh)
+            instance._encoded_to_canonical = {
+                int(k): int(v) for k, v in meta.get("encoded_to_canonical", {}).items()
+            }
+            if meta.get("feature_names"):
+                instance.feature_names = meta["feature_names"]
+            logger.info(
+                f"Model loaded from {load_path} "
+                f"(encoder: {instance._encoded_to_canonical})"
+            )
+        else:
+            logger.warning(
+                f"Model loaded from {load_path} but no .meta.json found - "
+                f"predictions will return encoded class IDs"
+            )
         return instance

@@ -63,10 +63,17 @@ class SyntheticDataGenerator:
         miners = []
         model_keys = list(ASIC_REGISTRY.keys())
         num_failures = int(self.fleet_size * self.failure_rate)
-        failure_indices = set(
+        failure_indices = list(
             self.rng.choice(self.fleet_size, size=num_failures, replace=False)
         )
         failure_types = ["thermal", "hashboard", "psu"]
+
+        failure_assignments: dict[int, str] = {}
+        for rank, idx in enumerate(failure_indices):
+            if rank < len(failure_types):
+                failure_assignments[int(idx)] = failure_types[rank]
+            else:
+                failure_assignments[int(idx)] = str(self.rng.choice(failure_types))
 
         for i in range(self.fleet_size):
             model_key = self.rng.choice(model_keys, p=[0.20, 0.35, 0.20, 0.25])
@@ -76,11 +83,11 @@ class SyntheticDataGenerator:
             r_thermal = 1.0 + 0.005 * months
             base_error_rate = 0.001 * (1 + 0.02 * months)
 
-            is_healthy = i not in failure_indices
+            is_healthy = i not in failure_assignments
             failure_type = None
             failure_onset = None
             if not is_healthy:
-                failure_type = self.rng.choice(failure_types)
+                failure_type = failure_assignments[i]
                 failure_onset = self.rng.integers(
                     self.steps_per_day * 10, self.steps_per_day * 25
                 )

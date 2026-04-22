@@ -41,6 +41,10 @@ htmlcov/
 *.swp
 *.swo
 
+# Claude Code runtime artifacts
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db

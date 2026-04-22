@@ -1,55 +1,81 @@
 graph TD
-    subgraph HW["Hardware Layer"]
+    subgraph HW["Layer 0 - Hardware"]
         ASIC["ASIC Fleet\nS21 | S21 Pro | S21 XP | M60S"]
         SENS["Site Sensors\nAmbient | Cooling | Power"]
     end
 
-    subgraph MDK["MDK Core - JavaScript SDK"]
-        WORK["MDK Workers\nDevice Libraries"]
-        HB["Hyperbee\nTime-series Storage"]
-        HRPC["HRPC Interface"]
+    subgraph MDK["Layer 1 - MDK Core (JavaScript, Tether)"]
+        WORK["MDK Workers\nDevice Adapters"]
+        HB["Hyperbee\nTime-series KV"]
+        HRPC["HRPC\nAuthenticated RPC"]
+        ORCH["Orchestrator\nLean Core"]
     end
 
-    subgraph AI["AI Controller - Python Prototype"]
-        ING["Telemetry Ingestion\nPydantic Validation"]
-        DB["DuckDB\nEmbedded Analytics"]
-        FE["Feature Engineering\nWindow Functions"]
-        KPI["KPI Engine\nTE | ETE | Profit Density"]
-        AD["Anomaly Detector\nLSTM Autoencoder"]
-        IF["Isolation Forest\nFast Outlier Detection"]
-        FC["Failure Classifier\nXGBoost + SHAP"]
-        HS["Health Score\nEnsemble: 0.4xAD + 0.6xFC + IF"]
-        RL["RL Agent\nPPO via Stable-Baselines3"]
-        DE["Decision Engine\nSafety Layer"]
-        LLM["Local LLM\nGemma 4 E4B via Ollama"]
+    subgraph INGEST["Layer 2 - Ingestion (Python, this project)"]
+        ING["Pydantic validation\nphysical bounds"]
+        DB["DuckDB\nembedded analytics"]
     end
 
-    subgraph OUT["Outputs"]
-        CMD["Control Commands\nRate-limited + Safety-gated"]
-        DASH["Operator Dashboard\nStreamlit"]
-        ONNX["ONNX Models\nEdge Deployment"]
+    subgraph FE["Layer 3 - Feature Engineering"]
+        WIN["Rolling window SQL\n5m / 1h, z-scores,\ndT/dt, dP/dt"]
     end
 
-    ASIC -->|"Telemetry"| WORK
-    SENS -->|"Sensor data"| WORK
+    subgraph ML["Layer 4 - ML Analytics"]
+        KPI["KPI Engine\nTE | ETE | PD"]
+        AD["LSTM Autoencoder\ntemporal anomaly"]
+        IFM["Isolation Forest\nglobal outlier"]
+        FC["XGBoost + SHAP\nfailure classifier"]
+        HS["Health Score\n0.4*anomaly + 0.6*fail"]
+        RL["PPO Agent\nSB3 / Gymnasium"]
+    end
+
+    subgraph LLM["Layer 5 - AI Assistant"]
+        GEM["Gemma 4 31B Instruct\nvia NVIDIA NIM\n(OpenAI-compatible)"]
+        TOOLS["Tool Registry\nget_fleet_summary\nget_device_status\nlist_miners_at_risk\nrecommend_action\nsend_operator_alert"]
+        AGENT["FleetAgent\ntool-calling loop"]
+    end
+
+    subgraph SAFE["Layer 6 - Decision Engine"]
+        DE["3-tier gate:\nSafety > AI > Operator\nhard thermal/voltage limits\nrate limit 5 min/device"]
+    end
+
+    subgraph OUT["Layer 7 - Outputs"]
+        CMD["Control Commands\nJSON schema"]
+        DASH["Streamlit Dashboard\n6 tabs incl. Synthetic Data\nand AI Assistant"]
+        ONNX["ONNX Artefacts\nedge deployment on\nMOS lib-workers"]
+        MAIL["Operator Alerts\nSMTP or local log"]
+    end
+
+    ASIC -->|"telemetry"| WORK
+    SENS -->|"sensor data"| WORK
     WORK --> HB
-    WORK -->|"HRPC"| HRPC
+    WORK --> ORCH
+    ORCH --> HRPC
     HRPC -->|"Parquet / HRPC"| ING
     ING --> DB
-    DB --> FE
-    FE --> KPI
-    FE --> AD
-    FE --> IF
-    FE --> FC
+    DB --> WIN
+    WIN --> KPI
+    WIN --> AD
+    WIN --> IFM
+    WIN --> FC
     AD --> HS
-    IF --> HS
+    IFM --> HS
     FC --> HS
     KPI --> RL
     HS --> DE
     RL --> DE
+    KPI --> TOOLS
+    HS --> TOOLS
+    FC --> TOOLS
+    TOOLS --> AGENT
+    AGENT -->|"prompt + tool results"| GEM
+    GEM -->|"tool calls / answer"| AGENT
+    AGENT -->|"advisory action"| DE
+    AGENT --> MAIL
     DE --> CMD
-    CMD -->|"Set clock/voltage/fan"| WORK
-    DE --> DASH
-    LLM --> DASH
+    CMD -->|"set clock/voltage/fan"| WORK
+    KPI --> DASH
+    HS --> DASH
+    AGENT --> DASH
     AD --> ONNX
     FC --> ONNX

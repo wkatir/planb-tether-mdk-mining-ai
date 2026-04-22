@@ -1,4 +1,13 @@
-from dataclasses import dataclass
+"""
+app/control/decision_engine.py — Three-tier safety layer.
+
+Hierarchy (enforced in this order):
+    1. Safety Layer   — hard thermal/voltage/rate limits (non-negotiable)
+    2. AI Layer       — RL agent or LLM recommendation
+    3. Operator Layer — manual commands (still gated by Safety)
+"""
+
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import TypedDict
@@ -16,12 +25,15 @@ class ActionType(str, Enum):
     PLACEHOLDER = "placeholder"
 
 
-class ControlCommand(TypedDict):
+@dataclass
+class ControlCommand:
+    """Immutable control decision emitted by the engine."""
+
     action_type: ActionType
     clock_multiplier: float
     reason: str
     safety_override: bool
-    timestamp: datetime
+    timestamp: datetime = field(default_factory=datetime.now)
 
 
 class DeviceState(TypedDict):
@@ -64,46 +76,32 @@ class DecisionEngine:
                 clock_multiplier=1.0,
                 reason="rate_limited",
                 safety_override=False,
-                timestamp=datetime.now(),
             )
 
-        safety_result = self._check_safety(ai_action, state)
-        if safety_result is not None:
+        safety_override = self._check_safety(ai_action, state)
+        if safety_override is not None:
             logger.warning(
-                f"Safety override for device {device_id}: {safety_result.reason}"
+                f"Safety override for device {device_id}: {safety_override.reason}"
             )
-            self._record_command(device_id, safety_result["action_type"])
-            return ControlCommand(
-                action_type=safety_result.action_type,
-                clock_multiplier=safety_result.clock_multiplier,
-                reason=safety_result.reason,
-                safety_override=True,
-                timestamp=datetime.now(),
-            )
+            self._record_command(device_id, safety_override.action_type)
+            return safety_override
 
-        self._record_command(device_id, ai_action["action_type"])
-        return ControlCommand(
-            action_type=ai_action.action_type,
-            clock_multiplier=ai_action.clock_multiplier,
-            reason=ai_action.reason,
-            safety_override=False,
-            timestamp=datetime.now(),
-        )
+        self._record_command(device_id, ai_action.action_type)
+        return ai_action
 
     def _check_safety(
         self, action: ControlCommand, state: DeviceState
     ) -> ControlCommand | None:
         if state["temperature"] >= settings.TEMP_THROTTLE:
             logger.warning(
-                f"Temperature {state['temperature']}°C exceeds throttle threshold "
-                f"{settings.TEMP_THROTTLE}°C for device {state['device_id']}"
+                f"Temperature {state['temperature']}C exceeds throttle threshold "
+                f"{settings.TEMP_THROTTLE}C for device {state['device_id']}"
             )
             return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
                 clock_multiplier=0.8,
                 reason="temp_throttle",
                 safety_override=True,
-                timestamp=datetime.now(),
             )
 
         voltage_deviation = (
@@ -121,7 +119,6 @@ class DecisionEngine:
                 clock_multiplier=0.9,
                 reason="voltage_protection",
                 safety_override=True,
-                timestamp=datetime.now(),
             )
 
         if action.action_type in (ActionType.UNDERCLOCK, ActionType.OVERCLOCK):
@@ -137,13 +134,14 @@ class DecisionEngine:
                     else 1.0 + self.CLOCK_STEP_LIMIT
                 )
                 return ControlCommand(
-                    action_type=ActionType.UNDERCLOCK
-                    if action.clock_multiplier < 1.0
-                    else ActionType.OVERCLOCK,
+                    action_type=(
+                        ActionType.UNDERCLOCK
+                        if action.clock_multiplier < 1.0
+                        else ActionType.OVERCLOCK
+                    ),
                     clock_multiplier=limited_multiplier,
                     reason="clock_step_limited",
                     safety_override=True,
-                    timestamp=datetime.now(),
                 )
 
         return None
@@ -157,7 +155,8 @@ class DecisionEngine:
         if elapsed < timedelta(seconds=self.RATE_LIMIT_SECONDS):
             logger.debug(
                 f"Rate limit check for {device_id}: "
-                f"{elapsed.total_seconds():.1f}s elapsed (min: {self.RATE_LIMIT_SECONDS}s)"
+                f"{elapsed.total_seconds():.1f}s elapsed "
+                f"(min: {self.RATE_LIMIT_SECONDS}s)"
             )
             return False
 
@@ -177,29 +176,32 @@ class DecisionEngine:
                 clock_multiplier=1.0,
                 reason="rl_not_ready",
                 safety_override=False,
-                timestamp=datetime.now(),
             )
 
         health = state.get("health_score")
         if health is not None and health < 0.5:
             logger.debug(f"Low health score {health}, recommending underclock")
+            # 4% underclock — safely under the 5% step-limit (avoids
+            # float-comparison flakiness at the boundary) so the AI
+            # recommendation survives gating instead of being clipped.
             return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
-                clock_multiplier=0.9,
+                clock_multiplier=0.96,
                 reason="low_health",
                 safety_override=False,
-                timestamp=datetime.now(),
             )
 
         temp = state["temperature"]
-        if temp > settings.TEMP_WARNING:
-            logger.debug(f"Temperature {temp}°C above warning, recommending underclock")
+        # Pre-throttle warning band: between TEMP_NORMAL_MAX and TEMP_THROTTLE.
+        # Above TEMP_THROTTLE the Safety layer takes over — this branch must
+        # live strictly below it or it becomes dead code.
+        if settings.TEMP_NORMAL_MAX < temp < settings.TEMP_THROTTLE:
+            logger.debug(f"Temperature {temp}C in warning band, recommending underclock")
             return ControlCommand(
                 action_type=ActionType.UNDERCLOCK,
-                clock_multiplier=0.95,
+                clock_multiplier=0.97,
                 reason="temp_warning",
                 safety_override=False,
-                timestamp=datetime.now(),
             )
 
         logger.debug("RL agent recommending nominal operation")
@@ -208,7 +210,6 @@ class DecisionEngine:
             clock_multiplier=1.0,
             reason="nominal",
             safety_override=False,
-            timestamp=datetime.now(),
         )
 
     def set_rl_agent_ready(self, ready: bool) -> None:

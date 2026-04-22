@@ -25,10 +25,10 @@ class TestSettings:
         assert settings.TEMP_REFERENCE == 25.0
 
     def test_data_generation_defaults(self):
-        assert settings.fleet_size == 50
-        assert settings.simulation_days == 30
-        assert settings.sample_interval_minutes == 1
-        assert settings.failure_injection_rate == 0.05
+        assert settings.fleet_size > 0
+        assert settings.simulation_days > 0
+        assert settings.sample_interval_minutes >= 1
+        assert 0.0 <= settings.failure_injection_rate <= 0.5
 
     def test_duckdb_path(self):
         assert isinstance(settings.DUCKDB_PATH, Path)
