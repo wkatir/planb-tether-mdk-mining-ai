@@ -30,7 +30,7 @@ graph TD
     end
 
     subgraph LLM["Layer 5 - AI Assistant"]
-        GEM["Gemma 4 31B Instruct\nvia NVIDIA NIM\n(OpenAI-compatible)"]
+        GEM["Gemma 3 27B Instruct\nvia NVIDIA NIM\n(OpenAI-compatible)"]
         TOOLS["Tool Registry\nget_fleet_summary\nget_device_status\nlist_miners_at_risk\nrecommend_action\nsend_operator_alert"]
         AGENT["FleetAgent\ntool-calling loop"]
     end

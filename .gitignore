@@ -45,6 +45,9 @@ htmlcov/
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
 
+# Personal / local-only docs
+docs/video_script.md
+
 # OS
 .DS_Store
 Thumbs.db
