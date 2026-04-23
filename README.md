@@ -6,6 +6,20 @@ AI-driven optimization and predictive maintenance for Bitcoin mining fleets. Lay
 > Assignment: AI-Driven Mining Optimization & Predictive Maintenance (Tether)
 > Mentor: Gio Galt, Head of MOS @ Tether
 
+### Dashboard Preview
+
+| Fleet Overview | KPI Trends |
+|---|---|
+| ![Fleet Overview](docs/screenshot_fleet_overview.png) | ![KPI Trends](docs/screenshot_kpi_trends.png) |
+
+| AI Insights | Synthetic Data |
+|---|---|
+| ![AI Insights](docs/screenshot_ai_insights.png) | ![Synthetic Data](docs/screenshot_synthetic_data.png) |
+
+| AI Assistant |
+|---|
+| ![AI Assistant](docs/screenshot_ai_assistant.png) |
+
 ---
 
 ## What it does
