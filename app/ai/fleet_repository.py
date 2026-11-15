@@ -47,7 +47,8 @@ class FleetRepository:
             conn = duckdb.connect(str(self.db_path), read_only=True)
         except duckdb.Error as exc:
             raise KpiUnavailableError(
-                f"Cannot open {self.db_path}. Run `python -m app.run_all` first."
+                f"Cannot open {self.db_path} ({exc}). "
+                "If it does not exist yet, run `python -m app.run_all` first."
             ) from exc
         try:
             yield conn
@@ -65,7 +66,8 @@ class FleetRepository:
         # Round-trip through pandas' JSON writer: NaN -> null, timestamps -> ISO.
         return json.loads(df.to_json(orient="records", date_format="iso"))
 
-    def fleet_summary(self, ete_breakeven: float = settings.ETE_BREAKEVEN) -> Record:
+    def fleet_summary(self, ete_breakeven: float | None = None) -> Record:
+        ete_breakeven = settings.ETE_BREAKEVEN if ete_breakeven is None else ete_breakeven
         rows = self._records(
             """
             WITH per_device AS (
@@ -117,9 +119,11 @@ class FleetRepository:
     def miners_at_risk(
         self,
         limit: int = 10,
-        temp_c: float = settings.RISK_TEMP_C,
-        avg_errors: float = settings.RISK_AVG_ERRORS,
+        temp_c: float | None = None,
+        avg_errors: float | None = None,
     ) -> list[Record]:
+        temp_c = settings.RISK_TEMP_C if temp_c is None else temp_c
+        avg_errors = settings.RISK_AVG_ERRORS if avg_errors is None else avg_errors
         return self._records(
             """
             SELECT device_id, model,
@@ -137,9 +141,10 @@ class FleetRepository:
         )
 
     def unprofitable_miners(
-        self, limit: int = 10, ete_breakeven: float = settings.ETE_BREAKEVEN
+        self, limit: int = 10, ete_breakeven: float | None = None
     ) -> list[Record]:
         """Miners whose average ETE is at or above break-even, worst first."""
+        ete_breakeven = settings.ETE_BREAKEVEN if ete_breakeven is None else ete_breakeven
         return self._records(
             """
             SELECT device_id, model,

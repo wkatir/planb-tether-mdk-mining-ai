@@ -392,6 +392,12 @@ with tab_assistant:
         f"Skills: {', '.join(agent_profiles[agent_name].skills)}."
     )
 
+    if agent_profiles[agent_name].tool_calling:
+        st.caption(
+            "This agent uses tool calling: set `LLM_MODEL` to a model that supports it "
+            "(the default Gemma endpoint does not)."
+        )
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 

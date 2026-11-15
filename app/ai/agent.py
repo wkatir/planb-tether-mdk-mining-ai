@@ -46,7 +46,11 @@ class FleetAgent:
         everything = build_toolbox(
             repository or FleetRepository(), alert_sender or AlertSender(), self.skills
         )
-        self.toolbox = everything.restrict(self._granted_tools())
+        try:
+            self.toolbox = everything.restrict(self._granted_tools())
+        except ValueError as exc:
+            # A typo in a skill's allowed-tools or in the profile's extra_tools.
+            raise ProfileError(f"{self.profile.name}: {exc}") from exc
 
         missing = sorted(set(self.profile.preload) - set(self.toolbox.names()))
         if missing:

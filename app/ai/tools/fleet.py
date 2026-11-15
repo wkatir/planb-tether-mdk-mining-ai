@@ -36,7 +36,8 @@ def fleet_tools(repo: FleetRepository) -> list[Tool]:
             name="list_miners_at_risk",
             description=(
                 "Miners whose avg temperature or error count crossed risk "
-                "thresholds. Already pre-ranked by severity."
+                "thresholds, sorted by avg errors then avg temperature. "
+                "The order is not a priority ranking."
             ),
             handler=lambda limit=10: repo.miners_at_risk(limit=limit),
             properties={

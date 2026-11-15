@@ -5,6 +5,8 @@ Usage:
     python -m app.ai.cli --list-skills
     python -m app.ai.cli --agent maintenance --show-prompt --demo
     python -m app.ai.cli --agent finance --call-tool list_unprofitable_miners --demo
+    python -m app.ai.cli --agent maintenance --call-tool get_device_status \
+        --args device_id=miner_007 --demo
     python -m app.ai.cli --agent copilot --ask "What needs attention?" --demo
 
 `--demo` reads examples/kpi_sample.csv instead of data/mining.duckdb, so the
@@ -17,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -27,6 +30,19 @@ from app.ai.skills import SkillError, SkillRegistry
 from app.config import PROJECT_ROOT
 
 DEMO_CSV = PROJECT_ROOT / "examples" / "kpi_sample.csv"
+
+
+def _parse_tool_args(raw: str) -> dict[str, Any]:
+    """Accept JSON, or `key=value,key=value` (no shell quoting needed)."""
+    if raw.lstrip().startswith("{"):
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("--args must be a JSON object")
+        return parsed
+    pairs = [item.partition("=") for item in raw.split(",") if item.strip()]
+    if any(not sep for _, sep, _ in pairs):
+        raise ValueError("--args must be JSON or key=value pairs")
+    return {key.strip(): value.strip() for key, _, value in pairs}
 
 
 def _print_agents() -> None:
@@ -53,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-skills", action="store_true")
     parser.add_argument("--show-prompt", action="store_true", help="print system prompt + tools")
     parser.add_argument("--call-tool", metavar="NAME", help="run one of the agent's tools")
-    parser.add_argument("--args", default="{}", help="JSON arguments for --call-tool")
+    parser.add_argument(
+        "--args", default="{}", help="tool arguments: JSON or key=value,key=value"
+    )
     parser.add_argument("--ask", metavar="QUESTION", help="send a question to the LLM")
     parser.add_argument("--demo", action="store_true", help=f"use {DEMO_CSV.name} as the data")
     args = parser.parse_args(argv)
@@ -81,12 +99,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.call_tool:
-        result = agent.toolbox.dispatch(args.call_tool, json.loads(args.args))
+        try:
+            tool_args = _parse_tool_args(args.args)
+        except ValueError as exc:  # includes json.JSONDecodeError
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        result = agent.toolbox.dispatch(args.call_tool, tool_args)
         print(json.dumps(json.loads(result.content), indent=2))
         return 0
 
     if args.ask:
-        trace = agent.ask(args.ask)
+        try:
+            trace = agent.ask(args.ask)
+        except RuntimeError as exc:  # missing API key or openai package
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         print(trace.answer)
         print("\n--- tool calls")
         for call in trace.tool_calls:

@@ -11,11 +11,18 @@ from app.config import settings
 
 def decide_action(
     row: dict[str, Any],
-    temp_throttle: float = settings.TEMP_THROTTLE,
-    error_count: int = settings.ACTION_ERROR_COUNT,
-    ete_breakeven: float = settings.ETE_BREAKEVEN,
+    temp_throttle: float | None = None,
+    error_count: int | None = None,
+    ete_breakeven: float | None = None,
 ) -> tuple[str, str]:
-    """Map a device snapshot to (action, reason). First matching rule wins."""
+    """Map a device snapshot to (action, reason). First matching rule wins.
+
+    Thresholds default to the live settings, the same ones shown to the model.
+    """
+    temp_throttle = settings.TEMP_THROTTLE if temp_throttle is None else temp_throttle
+    error_count = settings.ACTION_ERROR_COUNT if error_count is None else error_count
+    ete_breakeven = settings.ETE_BREAKEVEN if ete_breakeven is None else ete_breakeven
+
     temp = float(row.get("chip_temperature_c") or 0.0)
     errors = int(row.get("error_count") or 0)
     ete = row.get("economic_te")
@@ -24,8 +31,8 @@ def decide_action(
         return "underclock", "thermal_throttle"
     if errors > error_count:
         return "investigate", "high_error_rate"
-    if ete is not None and ete > ete_breakeven:
-        return "investigate", "unprofitable_ete_gt_1"
+    if ete is not None and ete >= ete_breakeven:
+        return "investigate", "unprofitable_ete_at_or_above_breakeven"
     return "noop", "nominal"
 
 

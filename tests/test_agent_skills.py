@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.ai import cli
 from app.ai.agent import FleetAgent
 from app.ai.alerts import AlertConfig, AlertSender
 from app.ai.fleet_repository import FleetRepository, KpiUnavailableError
@@ -131,6 +132,14 @@ class TestProfiles:
         with pytest.raises(ProfileError, match="skils"):
             load_profile("bad", agents_dir=tmp_path)
 
+    def test_list_keys_must_be_lists(self, tmp_path):
+        (tmp_path / "bad.toml").write_text(
+            'display_name = "x"\ndescription = "x"\nrole = "x"\nskills = "fleet-triage"\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ProfileError, match="must be a list"):
+            load_profile("bad", agents_dir=tmp_path)
+
     def test_on_demand_requires_tool_calling(self):
         with pytest.raises(ProfileError, match="tool_calling"):
             AgentProfile(
@@ -155,6 +164,14 @@ class TestRepositoryAndRules:
         assert etes == sorted(etes, reverse=True)
         assert all(ete >= settings.ETE_BREAKEVEN for ete in etes)
 
+    def test_sample_contains_a_thermal_failure_hidden_by_its_average(self, repo):
+        """miner_007 averages just above the risk line but its latest reading is critical."""
+        average = next(m for m in repo.miners_at_risk() if m["device_id"] == "miner_007")
+        latest = repo.device_status("miner_007")
+        assert average["avg_temp"] < settings.TEMP_WARNING
+        assert latest["chip_temperature_c"] >= settings.TEMP_WARNING
+        assert decide_action(latest) == ("underclock", "thermal_throttle")
+
     def test_unknown_device_is_none(self, repo):
         assert repo.device_status("miner_999") is None
 
@@ -168,6 +185,8 @@ class TestRepositoryAndRules:
             ({"chip_temperature_c": 90, "error_count": 99, "economic_te": 2}, "underclock"),
             ({"chip_temperature_c": 60, "error_count": 31, "economic_te": 0.5}, "investigate"),
             ({"chip_temperature_c": 60, "error_count": 0, "economic_te": 1.5}, "investigate"),
+            ({"chip_temperature_c": 60, "error_count": 0, "economic_te": 1.0}, "investigate"),
+            ({"chip_temperature_c": 60, "error_count": 0, "economic_te": 0.99}, "noop"),
             ({"chip_temperature_c": 60, "error_count": 0, "economic_te": None}, "noop"),
         ],
     )
@@ -223,12 +242,26 @@ class TestPersonalization:
         assert "- miner-diagnosis:" in prompt
         assert "## Procedure" not in prompt
 
+    @pytest.mark.parametrize("name", ["copilot", "finance", "maintenance"])
+    def test_saved_example_prompts_are_what_the_agents_really_build(self, make_agent, name):
+        agent, _ = make_agent(name)
+        saved = (PROJECT_ROOT / "examples" / "prompts" / f"{name}.txt").read_text("utf-8")
+        assert saved.startswith(agent.system_prompt())
+
     def test_preload_must_be_granted_by_a_skill(self, repo):
         profile = AgentProfile(
             name="x", display_name="x", description="x", role="x",
             skills=("profitability-analysis",), preload=("list_miners_at_risk",),
         )
         with pytest.raises(ProfileError, match="list_miners_at_risk"):
+            FleetAgent(client=ScriptedLLM(), profile=profile, repository=repo)
+
+    def test_unknown_tool_in_profile_is_a_profile_error(self, repo):
+        profile = AgentProfile(
+            name="x", display_name="x", description="x", role="x",
+            skills=("fleet-triage",), extra_tools=("no_such_tool",),
+        )
+        with pytest.raises(ProfileError, match="no_such_tool"):
             FleetAgent(client=ScriptedLLM(), profile=profile, repository=repo)
 
     def test_prompt_builder_without_skills_or_snapshot(self):
@@ -319,14 +352,50 @@ class TestSeverityScript:
         ]
         out = json.loads(self._run(json.dumps({"miners": miners})).stdout)
         assert [(m["device_id"], m["priority"]) for m in out["ranked"]] == [
-            ("hot", "P1"), ("errors", "P1"), ("warm", "P2"), ("fine", "P3"),
+            ("hot", "P1"), ("errors", "P1"), ("warm", "P2"), ("fine", "none"),
         ]
-        assert out["counts"] == {"P1": 2, "P2": 1, "P3": 1}
+        assert out["counts"] == {"P1": 2, "P2": 1}
 
     def test_thresholds_can_be_overridden(self):
         payload = {"miners": [{"device_id": "a", "avg_temp": 81.0}], "thresholds": {"temp_warning_c": 81}}
         assert json.loads(self._run(json.dumps(payload)).stdout)["ranked"][0]["priority"] == "P1"
 
-    def test_bad_input_exits_non_zero(self):
-        proc = self._run("not json")
+    def test_accepts_a_file_path(self):
+        payload = PROJECT_ROOT / "examples" / "severity_payload.json"
+        proc = subprocess.run(
+            [sys.executable, "-I", str(self.SCRIPT), str(payload)],
+            capture_output=True, text=True, check=False,
+        )
+        assert json.loads(proc.stdout)["counts"] == {"P1": 0, "P2": 2}
+
+    @pytest.mark.parametrize(
+        "payload",
+        ["not json", '{"miners": "x"}', '{"miners": [{"avg_temp": "hot"}]}', "{}"],
+    )
+    def test_bad_input_exits_with_a_message_not_a_traceback(self, payload):
+        proc = self._run(payload)
         assert proc.returncode == 2 and "miners" in proc.stderr
+        assert "Traceback" not in proc.stderr
+
+
+class TestCli:
+    def test_call_tool_accepts_key_value_args(self, capsys):
+        argv = ["--agent", "maintenance", "--demo", "--call-tool", "get_device_status"]
+        assert cli.main([*argv, "--args", "device_id=miner_007"]) == 0
+        assert json.loads(capsys.readouterr().out)["device_id"] == "miner_007"
+
+    def test_tool_outside_the_profile_is_refused(self, capsys):
+        cli.main(["--agent", "finance", "--demo", "--call-tool", "send_operator_alert"])
+        assert "not available" in json.loads(capsys.readouterr().out)["error"]
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--agent", "nope"],
+            ["--demo", "--call-tool", "get_fleet_summary", "--args", "{bad"],
+            ["--demo", "--call-tool", "get_fleet_summary", "--args", "novalue"],
+        ],
+    )
+    def test_user_errors_exit_2_without_traceback(self, argv, capsys):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err.startswith("error:")

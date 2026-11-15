@@ -66,6 +66,8 @@ def _from_toml(path: Path) -> AgentProfile:
 
     for key in ("skills", "rules", "preload", "extra_tools"):
         if key in data:
+            if not isinstance(data[key], list):
+                raise ProfileError(f"{path.name}: {key!r} must be a list of strings")
             data[key] = tuple(data[key])
     for key in ("role", "output_format"):
         if key in data:

@@ -69,7 +69,8 @@ def skill_tools(skills: list[Skill]) -> list[Tool]:
             name=READ_SKILL_RESOURCE,
             description=(
                 "Read a reference or asset file bundled with a skill, e.g. "
-                "'references/failure-modes.md'. Paths are listed by load_skill."
+                "'references/failure-modes.md'. Use the paths listed under the "
+                "skill's resources."
             ),
             handler=read_skill_resource,
             properties={"name": skill_name, "path": {"type": "string"}},
