@@ -1,0 +1,9 @@
+{
+  "miners": [
+    {"device_id": "miner_000", "model": "WhatsMiner M60S", "avg_temp": 82.88, "avg_errors": 0.01},
+    {"device_id": "miner_001", "model": "Antminer S21 XP", "avg_temp": 81.88, "avg_errors": 0.01},
+    {"device_id": "miner_007", "model": "Antminer S21 Pro", "avg_temp": 84.57, "avg_errors": 0.0},
+    {"device_id": "miner_003", "model": "Antminer S21 Pro", "avg_temp": 82.72, "avg_errors": 0.0}
+  ],
+  "thresholds": {"risk_temp_c": 80.0, "temp_warning_c": 85.0, "risk_avg_errors": 50.0}
+}

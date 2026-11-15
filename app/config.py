@@ -3,6 +3,8 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables / .env file."""
@@ -44,6 +46,16 @@ class Settings(BaseSettings):
     TE_BETA: float = 0.008
     TE_ETA_ENV_MIN: float = 0.70
     AUX_POWER_PCT: float = 0.02
+
+    # Agent layer: where skills / agent profiles live, and the risk thresholds
+    # the agent tools apply (previously hard-coded inside the SQL and rules).
+    skills_dir: Path = PROJECT_ROOT / "skills"
+    agents_dir: Path = PROJECT_ROOT / "agents"
+
+    RISK_TEMP_C: float = 80.0
+    RISK_AVG_ERRORS: float = 50.0
+    ACTION_ERROR_COUNT: int = 30
+    ETE_BREAKEVEN: float = 1.0
 
     def ensure_dirs(self) -> None:
         """Create data directories if they don't exist."""

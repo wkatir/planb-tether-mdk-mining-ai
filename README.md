@@ -227,6 +227,35 @@ Empirical basis for the coefficients (PUE, CMOS power law, manufacturer derating
 
 ---
 
+## Agents and skills
+
+The LLM layer is profile-driven. An **agent** is a TOML file in [agents/](agents/)
+(role, rules, output format, sampling, which skills it owns). A **skill** is a
+folder in [skills/](skills/) with a `SKILL.md` plus references, assets and
+scripts. The tools an agent can call are the union of what its skills declare
+in `allowed-tools`, so adding or retuning an agent needs no Python changes.
+
+| Agent | Skills | Mode | Cannot do |
+|---|---|---|---|
+| `copilot` (dashboard default) | fleet-triage, profitability-analysis | skills injected, no tool calling | call tools, send alerts |
+| `maintenance` | fleet-triage, miner-diagnosis, operator-alert | skills loaded on demand, tool calling | profitability tools |
+| `finance` | profitability-analysis | skills injected, tool calling | alerts, action recommendations |
+
+```bash
+python -m app.ai.cli --list-agents
+python -m app.ai.cli --list-skills
+python -m app.ai.cli --agent maintenance --show-prompt --demo      # no API key needed
+python -m app.ai.cli --agent finance --call-tool list_unprofitable_miners --demo
+python -m app.ai.cli --agent copilot --ask "What needs attention?" --demo   # needs NVIDIA_API_KEY
+```
+
+`--demo` reads [examples/kpi_sample.csv](examples/kpi_sample.csv) instead of the
+DuckDB file, so the agent layer runs without the ML pipeline. `maintenance` and
+`finance` need an `LLM_MODEL` that supports tool calling. Design rationale:
+[docs/REFACTOR_SKILLS.md](docs/REFACTOR_SKILLS.md).
+
+---
+
 ## Project Structure
 
 ```
@@ -240,8 +269,14 @@ planb-tether-mdk-mining-ai/
 |  |- config.py                    <- Pydantic Settings
 |  |- ai/
 |  |  |- llm_client.py             <- OpenAI-compatible LLM client
-|  |  |- tools.py                  <- 5 tools exposed to the LLM
-|  |  `- agent.py                  <- FleetAgent (tool-calling loop)
+|  |  |- agent.py                  <- FleetAgent (orchestration loop only)
+|  |  |- profiles.py               <- loads agents/*.toml
+|  |  |- skills.py                 <- SKILL.md discovery + resources
+|  |  |- prompts.py                <- structured system prompt + guardrails
+|  |  |- fleet_repository.py       <- all SQL over the kpi table
+|  |  |- alerts.py                 <- SMTP / local-log delivery
+|  |  |- cli.py                    <- python -m app.ai.cli
+|  |  `- tools/                    <- 9 tools, one module per concern
 |  |- control/
 |  |  `- decision_engine.py        <- 3-tier safety gate
 |  |- dashboard/dashboard.py       <- Streamlit (6 tabs)
@@ -261,7 +296,10 @@ planb-tether-mdk-mining-ai/
 |  `- rl/
 |     |- mining_env.py             <- Gymnasium env (ASICSpec-driven)
 |     `- train_agent.py            <- PPO via Stable-Baselines3
-|- tests/                          <- 51 tests
+|- agents/                         <- agent profiles (copilot, maintenance, finance)
+|- skills/                         <- 4 skills: SKILL.md + references / assets / scripts
+|- examples/                       <- sample KPI data + questions per agent
+|- tests/                          <- 87 tests
 `- docs/
    |- technical_report.tex         <- Overleaf-ready PDF source
    |- technical_report.md          <- long-form reference (17 sections)
@@ -282,6 +320,7 @@ planb-tether-mdk-mining-ai/
 | [Technical report (condensed)](docs/technical_report_condensed.md) | 4-page summary for the mentor |
 | [Deployment guide](docs/DEPLOYMENT.md) | Hardware tiers, NIM vs Ollama, production path |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common errors and fixes |
+| [Refactor: skills y agentes (ES)](docs/REFACTOR_SKILLS.md) | Nota tecnica de la refactorizacion del agente: decisiones, skills, uso de IA |
 | [Architecture source](docs/architecture.mmd) | Raw Mermaid for external rendering |
 
 ---

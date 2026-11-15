@@ -378,6 +378,20 @@ with tab_assistant:
             "Example: `NVIDIA_API_KEY=nvapi-...`"
         )
 
+    from app.ai.profiles import list_profiles
+
+    agent_profiles = {p.name: p for p in list_profiles()}
+    agent_name = st.selectbox(
+        "Agent",
+        options=list(agent_profiles),
+        format_func=lambda name: agent_profiles[name].display_name,
+        help="Each agent is a profile in agents/*.toml with its own skills and tools.",
+    )
+    st.caption(
+        f"{agent_profiles[agent_name].description} "
+        f"Skills: {', '.join(agent_profiles[agent_name].skills)}."
+    )
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -396,7 +410,7 @@ with tab_assistant:
                 try:
                     from app.ai.agent import FleetAgent
 
-                    agent = FleetAgent()
+                    agent = FleetAgent(profile=agent_name)
                     trace = agent.ask(user_q)
                     answer = trace.answer or "(no response)"
                     st.markdown(answer)

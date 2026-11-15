@@ -63,14 +63,20 @@ class LLMClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str = "auto",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> Any:
-        """Single-shot chat completion. Returns the raw OpenAI response object."""
+        """Single-shot chat completion. Returns the raw OpenAI response object.
+
+        `temperature` / `max_tokens` override the env-level defaults per call
+        (agent profiles use this).
+        """
         client = self._lazy_client()
         kwargs: dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature if temperature is None else temperature,
+            "max_tokens": self.config.max_tokens if max_tokens is None else max_tokens,
         }
         if tools:
             kwargs["tools"] = tools

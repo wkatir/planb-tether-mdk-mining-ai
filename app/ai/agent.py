@@ -1,4 +1,4 @@
-"""Fleet operator assistant: context-preloaded chat, plus a tool-calling fallback."""
+"""Fleet operator assistant: a profile-driven agent whose skills decide what it knows and can do."""
 
 from __future__ import annotations
 
@@ -8,20 +8,14 @@ from typing import Any
 
 from loguru import logger
 
+from app.ai.alerts import AlertSender
+from app.ai.fleet_repository import FleetRepository
 from app.ai.llm_client import LLMClient
-from app.ai.tools import TOOL_SCHEMAS, dispatch_tool, get_fleet_summary, list_miners_at_risk
-
-SYSTEM_PROMPT_BASE = """You are MDK Copilot, an assistant for Bitcoin mining
-operators running on Tether's Mining Development Kit (MDK).
-
-Rules:
-1. Numbers come from the ML layer. Never invent KPIs or health scores.
-2. Be concise and operator-oriented. Use bullets when listing miners.
-3. Surface risk first (miners with high temperature, high errors, or
-   unprofitable ETE) before general summaries.
-4. Your action recommendations are advisory. The Decision Engine has the
-   final word on any clock/voltage change.
-""".strip()
+from app.ai.profiles import DEFAULT_PROFILE, AgentProfile, ProfileError, load_profile
+from app.ai.prompts import build_system_prompt
+from app.ai.skills import SkillRegistry
+from app.ai.tools import build_toolbox
+from app.ai.tools.skill_tools import LOAD_SKILL, READ_SKILL_RESOURCE, RUN_SKILL_SCRIPT
 
 
 @dataclass
@@ -31,50 +25,80 @@ class AgentTrace:
 
 
 class FleetAgent:
-    def __init__(self, client: LLMClient | None = None, max_steps: int = 4) -> None:
+    """Orchestration only: prompt -> LLM -> tool calls -> answer.
+
+    Identity comes from the profile, knowledge from its skills, and the tool set
+    is the union of what those skills declare in `allowed-tools`.
+    """
+
+    def __init__(
+        self,
+        client: LLMClient | None = None,
+        profile: AgentProfile | str = DEFAULT_PROFILE,
+        repository: FleetRepository | None = None,
+        skills: SkillRegistry | None = None,
+        alert_sender: AlertSender | None = None,
+    ) -> None:
         self.client = client or LLMClient()
-        self.max_steps = max_steps
+        self.profile = load_profile(profile) if isinstance(profile, str) else profile
+        self.skills = (skills or SkillRegistry.discover()).select(self.profile.skills)
+
+        everything = build_toolbox(
+            repository or FleetRepository(), alert_sender or AlertSender(), self.skills
+        )
+        self.toolbox = everything.restrict(self._granted_tools())
+
+        missing = sorted(set(self.profile.preload) - set(self.toolbox.names()))
+        if missing:
+            raise ProfileError(
+                f"{self.profile.name}: preload tools {missing} are not granted by its skills"
+            )
+
+    def _granted_tools(self) -> list[str]:
+        granted = [tool for skill in self.skills for tool in skill.allowed_tools]
+        granted += self.profile.extra_tools
+        if self.profile.tool_calling:
+            if self.profile.skill_activation == "on_demand":
+                granted.append(LOAD_SKILL)
+            if any(s.resources("references") + s.resources("assets") for s in self.skills):
+                granted.append(READ_SKILL_RESOURCE)
+            if any(s.resources("scripts") for s in self.skills):
+                granted.append(RUN_SKILL_SCRIPT)
+        return granted
+
+    def _preload(self, trace: AgentTrace) -> dict[str, str]:
+        """Run the profile's preload tools so the model starts with a fleet snapshot."""
+        snapshot: dict[str, str] = {}
+        for name in self.profile.preload:
+            result = self.toolbox.dispatch(name, {})
+            snapshot[name] = result.content
+            trace.tool_calls.append(
+                {"name": name, "preloaded": True, "result_preview": result.content[:200]}
+            )
+        return snapshot
+
+    def system_prompt(self, trace: AgentTrace | None = None) -> str:
+        snapshot = self._preload(trace or AgentTrace(answer=""))
+        return build_system_prompt(self.profile, self.skills, snapshot)
 
     def ask(self, question: str, history: list[dict[str, Any]] | None = None) -> AgentTrace:
-        summary = get_fleet_summary()
-        at_risk = list_miners_at_risk(limit=10)
-
-        context_block = (
-            "Current fleet snapshot (pre-computed by the ML layer):\n\n"
-            f"FLEET_SUMMARY = {summary.content}\n\n"
-            f"MINERS_AT_RISK = {at_risk.content}\n"
-        )
-
+        trace = AgentTrace(answer="")
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT_BASE + "\n\n" + context_block},
+            {"role": "system", "content": self.system_prompt(trace)},
         ]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": question})
 
-        response = self.client.chat(messages=messages)
-        answer = response.choices[0].message.content or ""
+        tools = self.toolbox.schemas() if self.profile.tool_calling else None
 
-        return AgentTrace(
-            answer=answer,
-            tool_calls=[
-                {"name": "get_fleet_summary", "result_preview": summary.content[:200]},
-                {"name": "list_miners_at_risk", "result_preview": at_risk.content[:200]},
-            ],
-        )
-
-    def ask_with_tools(
-        self, question: str, history: list[dict[str, Any]] | None = None
-    ) -> AgentTrace:
-        messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT_BASE}]
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": question})
-
-        trace = AgentTrace(answer="")
-
-        for step in range(self.max_steps):
-            response = self.client.chat(messages=messages, tools=TOOL_SCHEMAS)
+        for step in range(self.profile.max_steps):
+            response = self.client.chat(
+                messages=messages,
+                tools=tools,
+                temperature=self.profile.temperature,
+                max_tokens=self.profile.max_tokens,
+            )
             msg = response.choices[0].message
             tool_calls = getattr(msg, "tool_calls", None) or []
 
@@ -106,8 +130,8 @@ class FleetAgent:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                logger.info(f"[step {step}] tool={name} args={args}")
-                result = dispatch_tool(name, args)
+                logger.info(f"[{self.profile.name}][step {step}] tool={name} args={args}")
+                result = self.toolbox.dispatch(name, args)
                 trace.tool_calls.append(
                     {
                         "name": name,

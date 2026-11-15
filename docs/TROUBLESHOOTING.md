@@ -79,7 +79,7 @@ LLM_MODEL=google/gemma-3-27b-it
 Verified: `gemma-3-27b-it` responds in ~0.3 s, `gemma-3-4b-it` in ~2.6 s.
 
 ### `400 BadRequestError: "auto" tool choice requires --enable-auto-tool-choice`
-Gemma endpoints on NIM do not support `tool_choice="auto"`. The default `FleetAgent.ask()` method uses a **context-preloaded** approach that does not trigger this error. If you specifically want tool-calling, use `ask_with_tools()` and switch to a model that supports it on NIM:
+Gemma endpoints on NIM do not support `tool_choice="auto"`. The default `copilot` agent runs with `tool_calling = false` (context preloaded, skills injected in the prompt) and does not trigger this error. The `maintenance` and `finance` agents (`agents/*.toml`) use tool calling; for those, switch to a model that supports it on NIM:
 ```bash
 LLM_MODEL=meta/llama-3.1-70b-instruct
 ```
@@ -92,7 +92,7 @@ streamlit run app/dashboard/dashboard.py
 ```
 
 ### Agent returns "I hit my tool-call budget"
-`max_steps` reached without a terminal answer. Either the question is too vague or the tool chain is too deep. Rephrase the question or increase `max_steps` in `FleetAgent.__init__`.
+`max_steps` reached without a terminal answer. Either the question is too vague or the tool chain is too deep. Rephrase the question or increase `max_steps` in the agent profile (`agents/<name>.toml`).
 
 ---
 
