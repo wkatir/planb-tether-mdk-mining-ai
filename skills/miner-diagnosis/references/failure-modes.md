@@ -19,14 +19,14 @@ the ML models are trained on).
 
 | Mode | What you see in `get_device_status` | Develops over | Typical action |
 |---|---|---|---|
-| Thermal | `chip_temperature_c` climbing toward `temp_warning_c`; `fan_speed_rpm` pinned near 6000; errors creeping up; hashrate and power roughly nominal | 1-3 days | Underclock (Decision Engine), then inspect airflow, dust, fan, thermal paste |
+| Thermal | `chip_temperature_c` climbing toward `temp_warning_c`; `fan_speed_rpm` well above the fleet's usual level and rising with temperature; errors creeping up; hashrate and power roughly nominal | 1-3 days | Underclock (Decision Engine), then inspect airflow, dust, fan, thermal paste |
 | Hashboard | `asic_hashrate_th` well below nominal (up to about a third lost) while power and temperature stay normal; TE gets worse; a few extra errors | 0.5-2 days | Investigate: reseat / replace the hashboard |
 | PSU | `asic_power_w` off nominal with no matching change in hashrate; TE unstable between readings; few errors | 2-7 days | Investigate on site: measure voltage before swapping the PSU |
 
 ## Reading it honestly
 
-- Fan at maximum **and** temperature still rising is the strongest single
-  signal available: cooling has no headroom left.
+- Fan speed climbing **and** temperature still rising is the strongest single
+  signal available: cooling is losing headroom. 6000 rpm is the fan's ceiling.
 - Low hashrate with high temperature is thermal throttling, not a hashboard fault.
 - ETE above `ete_breakeven` with healthy telemetry is an economics problem
   (energy price, hashprice), not a hardware failure. Do not diagnose hardware.

@@ -10,7 +10,11 @@
 
 TE is higher than the nameplate J/TH of the model because it charges the miner
 for its share of cooling and auxiliary power and derates for ambient
-temperature and operating mode. A TE 2-4x the nameplate is normal here.
+temperature and operating mode. How much higher depends on the fleet: the
+cooling load is shared, so a small fleet carries more cooling per miner than a
+large one, and `overclock` miners take the `eta_mode` penalty on top. Do not
+judge a TE against the nameplate; compare miners of the same model and mode
+within the same fleet.
 
 ## ETE bands
 

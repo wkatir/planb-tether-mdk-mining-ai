@@ -1,7 +1,9 @@
-"""Rank at-risk miners into P1/P2/P3. Stdlib only: JSON on stdin, JSON on stdout.
+"""Rank at-risk miners into P1/P2. Stdlib only: JSON in, JSON on stdout.
 
 Usage:
-    python rank_severity.py < payload.json     # {"miners": [...], "thresholds": {...}}
+    python rank_severity.py payload.json      # or pipe the JSON on stdin
+
+Payload: {"miners": [{"device_id", "avg_temp", "avg_errors"}, ...], "thresholds": {...}}
 
 Implements references/severity-matrix.md. Missing thresholds fall back to the
 project defaults (app/config.py); pass the active ones to stay in sync.
@@ -13,6 +15,8 @@ import json
 import sys
 
 DEFAULT_THRESHOLDS = {"risk_temp_c": 80.0, "temp_warning_c": 85.0, "risk_avg_errors": 50.0}
+# Miners below every threshold are reported last, without a priority.
+ORDER = {"P1": 0, "P2": 1, "none": 2}
 
 
 def classify(miner: dict, th: dict) -> tuple[str, list[str]]:
@@ -24,14 +28,14 @@ def classify(miner: dict, th: dict) -> tuple[str, list[str]]:
     elif temp >= th["risk_temp_c"] or errors >= th["risk_avg_errors"]:
         priority = "P2"
     else:
-        priority = "P3"
+        priority = "none"
 
     reasons = []
     if temp >= th["risk_temp_c"]:
         reasons.append(f"avg_temp {temp:.1f} C")
     if errors >= th["risk_avg_errors"]:
         reasons.append(f"avg_errors {errors:.1f}")
-    return priority, reasons or ["below P2 thresholds"]
+    return priority, reasons or ["below at-risk thresholds"]
 
 
 def rank(miners: list[dict], th: dict) -> list[dict]:
@@ -40,24 +44,30 @@ def rank(miners: list[dict], th: dict) -> list[dict]:
         priority, reasons = classify(miner, th)
         ranked.append({**miner, "priority": priority, "reasons": reasons})
     # P1 first; inside a priority, hottest first (temperature outranks errors).
-    ranked.sort(key=lambda m: (m["priority"], -float(m.get("avg_temp") or 0.0)))
+    ranked.sort(key=lambda m: (ORDER[m["priority"]], -float(m.get("avg_temp") or 0.0)))
     return ranked
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
     try:
-        payload = json.load(sys.stdin)
+        if len(argv) > 1:
+            with open(argv[1], encoding="utf-8") as fh:
+                payload = json.load(fh)
+        else:
+            payload = json.load(sys.stdin)
         miners = payload["miners"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        print(f"input must be JSON with a 'miners' list: {exc!r}", file=sys.stderr)
+        if not isinstance(miners, list):
+            raise TypeError("'miners' must be a list")
+        th = {**DEFAULT_THRESHOLDS, **(payload.get("thresholds") or {})}
+        ranked = rank(miners, th)
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        print(f"input must be JSON with a 'miners' list of objects: {exc!r}", file=sys.stderr)
         return 2
 
-    th = {**DEFAULT_THRESHOLDS, **(payload.get("thresholds") or {})}
-    ranked = rank(miners, th)
-    counts = {p: sum(m["priority"] == p for m in ranked) for p in ("P1", "P2", "P3")}
+    counts = {p: sum(m["priority"] == p for m in ranked) for p in ("P1", "P2")}
     json.dump({"counts": counts, "ranked": ranked}, sys.stdout)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))

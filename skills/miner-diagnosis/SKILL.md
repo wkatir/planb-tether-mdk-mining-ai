@@ -3,7 +3,7 @@ name: miner-diagnosis
 description: Diagnose a single miner - match its latest telemetry to a probable failure mode (thermal, hashboard, PSU) and state the recommended action. Use when the operator names a device_id or asks why a miner is hot, slow, erroring or inefficient.
 allowed-tools: get_device_status recommend_action
 metadata:
-  version: "1.0"
+  version: "1.1"
   domain: maintenance
 ---
 
