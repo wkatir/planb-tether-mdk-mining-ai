@@ -1,5 +1,10 @@
 # AI-Driven Mining Optimization & Predictive Maintenance — Condensed Report
 
+> **Note (November 2026):** this report describes the project as submitted in April 2026.
+> The LLM layer (`app/ai/`) was later refactored into agent profiles, skills and modular
+> tools; file references to `app/ai/tools.py` and `SYSTEM_PROMPT` below are historical.
+> Current design: [REFACTOR_SKILLS.md](REFACTOR_SKILLS.md).
+
 **Author:** Wilmer Salazar · **Mentor:** Gio Galt (Head of MOS @ Tether) · **Program:** Plan B Network CUBO+ 2026 · **Date:** April 2026
 
 > 4-page summary. The full technical report (with library rationale, CPU-tier analysis, complete Gemma model map, MDK integration contract, and references) lives at [`docs/technical_report.md`](technical_report.md).

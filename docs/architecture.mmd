@@ -31,8 +31,8 @@ graph TD
 
     subgraph LLM["Layer 5 - AI Assistant"]
         GEM["Gemma 3 27B Instruct\nvia NVIDIA NIM\n(OpenAI-compatible)"]
-        TOOLS["Tool Registry\nget_fleet_summary\nget_device_status\nlist_miners_at_risk\nrecommend_action\nsend_operator_alert"]
-        AGENT["FleetAgent\ntool-calling loop"]
+        TOOLS["Toolbox (restricted per agent)\nfleet KPIs / device status\nat-risk / unprofitable miners\nrecommend_action\nsend_operator_alert\nskill loader / resources / scripts"]
+        AGENT["FleetAgent\nprofile (agents/*.toml)\n+ skills (skills/*/SKILL.md)"]
     end
 
     subgraph SAFE["Layer 6 - Decision Engine"]

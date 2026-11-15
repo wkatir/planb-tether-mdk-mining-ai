@@ -83,7 +83,7 @@ graph TD
     HS[Health Score]
     RL[PPO Agent]
 
-    TOOLS[5 Python tools]
+    TOOLS[Toolbox<br/>per-agent tools]
     AGENT[FleetAgent]
     GEM[Gemma 3 27B via NIM]
 
@@ -124,7 +124,11 @@ graph TD
     AD --> ONNX
 ```
 
-### LLM tool-calling loop
+### LLM agent loop
+
+Shown for the default `copilot` agent, which preloads its context. Agents with
+`tool_calling = true` (`maintenance`, `finance`) add LLM-requested tool calls
+between the prompt and the answer; see [Agents and skills](#agents-and-skills).
 
 ```mermaid
 sequenceDiagram
@@ -137,13 +141,11 @@ sequenceDiagram
 
     User->>UI: "worst 3 miners and why?"
     UI->>Agent: ask(question)
-    Agent->>Tools: get_fleet_summary()
-    Tools->>DB: aggregate query
+    Note over Agent: load profile + its skills
+    Agent->>Tools: preload: get_fleet_summary(),<br/>list_miners_at_risk(), list_unprofitable_miners()
+    Tools->>DB: aggregate queries
     DB-->>Tools: JSON (KPIs)
-    Agent->>Tools: list_miners_at_risk()
-    Tools->>DB: ranked query
-    DB-->>Tools: JSON (top N)
-    Agent->>LLM: system prompt + context + user question
+    Agent->>LLM: role + guardrails + skills + snapshot + question
     LLM-->>Agent: natural-language answer
     Agent-->>UI: answer + tool trace
     UI-->>User: rendered response
@@ -246,11 +248,16 @@ python -m app.ai.cli --list-agents
 python -m app.ai.cli --list-skills
 python -m app.ai.cli --agent maintenance --show-prompt --demo      # no API key needed
 python -m app.ai.cli --agent finance --call-tool list_unprofitable_miners --demo
+python -m app.ai.cli --agent maintenance --call-tool recommend_action --args device_id=miner_007 --demo
+python skills/fleet-triage/scripts/rank_severity.py examples/severity_payload.json
 python -m app.ai.cli --agent copilot --ask "What needs attention?" --demo   # needs NVIDIA_API_KEY
 ```
 
 `--demo` reads [examples/kpi_sample.csv](examples/kpi_sample.csv) instead of the
-DuckDB file, so the agent layer runs without the ML pipeline. `maintenance` and
+DuckDB file, so the agent layer runs without the ML pipeline. The sample holds
+48 hours of an 8-miner fleet with a thermal failure in progress (`miner_007`).
+The exact prompt each agent receives on it is saved in
+[examples/prompts/](examples/prompts/). `maintenance` and
 `finance` need an `LLM_MODEL` that supports tool calling. Design rationale:
 [docs/REFACTOR_SKILLS.md](docs/REFACTOR_SKILLS.md).
 
@@ -299,7 +306,7 @@ planb-tether-mdk-mining-ai/
 |- agents/                         <- agent profiles (copilot, maintenance, finance)
 |- skills/                         <- 4 skills: SKILL.md + references / assets / scripts
 |- examples/                       <- sample KPI data + questions per agent
-|- tests/                          <- 87 tests
+|- tests/                          <- 104 tests
 `- docs/
    |- technical_report.tex         <- Overleaf-ready PDF source
    |- technical_report.md          <- long-form reference (17 sections)
@@ -320,7 +327,8 @@ planb-tether-mdk-mining-ai/
 | [Technical report (condensed)](docs/technical_report_condensed.md) | 4-page summary for the mentor |
 | [Deployment guide](docs/DEPLOYMENT.md) | Hardware tiers, NIM vs Ollama, production path |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common errors and fixes |
-| [Refactor: skills y agentes (ES)](docs/REFACTOR_SKILLS.md) | Nota tecnica de la refactorizacion del agente: decisiones, skills, uso de IA |
+| [Agent refactor: skills and profiles (Spanish)](docs/REFACTOR_SKILLS.md) | Technical note on the agent-layer refactor: decisions, skill design, AI usage |
+| [Manual (PDF, Spanish)](docs/Manual_Refactor_Skills_Wilmer_Salazar.pdf) | Step-by-step walkthrough of the refactor |
 | [Architecture source](docs/architecture.mmd) | Raw Mermaid for external rendering |
 
 ---
@@ -344,7 +352,7 @@ See [.env.example](.env.example) for the full list. Most important:
 ## Testing
 
 ```bash
-pytest tests/ -v          # 51 tests
+pytest tests/ -v          # 104 tests
 ruff check app/
 ruff format app/
 ```

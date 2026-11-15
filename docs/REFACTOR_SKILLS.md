@@ -78,10 +78,10 @@ y recursos opcionales, siguiendo el formato de Agent Skills.
 
 | Skill | Qué encapsula | `allowed-tools` | Recursos |
 |---|---|---|---|
-| `fleet-triage` | Convertir la lista de mineros en riesgo en una cola P1/P2/P3 | `get_fleet_summary`, `list_miners_at_risk` | `references/severity-matrix.md`, `scripts/rank_severity.py` |
+| `fleet-triage` | Convertir la lista de mineros en riesgo en una cola P1/P2 | `get_fleet_summary`, `list_miners_at_risk` | `references/severity-matrix.md`, `scripts/rank_severity.py` |
 | `miner-diagnosis` | Diagnóstico de un minero: lectura → modo de falla probable → acción | `get_device_status`, `recommend_action` | `references/failure-modes.md` |
 | `profitability-analysis` | Interpretar TE / ETE / PD como decisión mantener / ajustar / apagar | `get_fleet_summary`, `list_unprofitable_miners`, `get_device_status` | `references/kpi-glossary.md` |
-| `operator-alert` | Cuándo y cómo enviar una alerta al operador | `get_device_status`, `send_operator_alert` | `assets/alert-template.md` |
+| `operator-alert` | Cuándo y cómo enviar una alerta al operador | `get_device_status`, `recommend_action`, `send_operator_alert` | `assets/alert-template.md` |
 
 Criterios de diseño:
 
@@ -89,10 +89,11 @@ Criterios de diseño:
   el modelo ve en modo `on_demand`, así que de ella depende que elija bien.
 - **Procedimiento numerado + reglas**, incluyendo qué hacer cuando la tool
   devuelve error o la lista viene vacía.
-- **Sin números mágicos en las skills.** Las referencias nombran los umbrales
-  (`temp_warning_c`, `ete_breakeven`) y el prompt incluye una sección
-  "Active thresholds" generada desde `config.py`. Cambiar un umbral no obliga a
-  editar documentación.
+- **Los umbrales que aplican las tools se nombran, no se copian.** Las skills
+  hablan de `temp_warning_c` o `ete_breakeven` y el prompt incluye una sección
+  "Active thresholds" generada desde `config.py`, así que cambiar un umbral no
+  obliga a editar las skills. Las bandas propias de una skill (por ejemplo
+  1.2x y 2x del break-even) sí viven en su referencia.
 - **Divulgación progresiva.** Al descubrir solo se lee el frontmatter; el cuerpo
   y los recursos se leen cuando el agente los necesita.
 - **El contenido sale del propio proyecto.** Las firmas de falla vienen de la
@@ -159,27 +160,37 @@ La refactorización no es 100 % neutra; estos son los cambios observables:
 - Base de datos ausente → `KpiUnavailableError` con mensaje claro, en lugar de tratar
   cualquier excepción como "tabla vacía".
 - El envío SMTP captura `SMTPException` / `OSError`, no `Exception`.
+- `recommend_action` trata el break-even como no rentable (`>=`, igual que el
+  resto del sistema) y su motivo pasó de `unprofitable_ete_gt_1` a
+  `unprofitable_ete_at_or_above_breakeven`, porque el umbral es configurable.
 - El dashboard tiene un selector de agente en la pestaña AI Assistant.
-- `docs/technical_report.md` describe el estado previo a esta refactorización
-  (es el informe entregado en su momento) y no se modificó.
+- `docs/technical_report.md` y `technical_report_condensed.md` describen el
+  estado previo a esta refactorización (son los informes entregados en su
+  momento). Solo se les agregó un aviso inicial que remite a esta nota.
 
 ## 7. Verificación
 
 ```bash
 pip install -r requirements.txt
-pytest tests/test_agent_skills.py -q        # 36 pruebas de la capa de agentes
+pytest tests/test_agent_skills.py -q        # 53 pruebas de la capa de agentes
 python -m app.ai.cli --list-agents
 python -m app.ai.cli --list-skills
 python -m app.ai.cli --agent maintenance --show-prompt --demo
-python -m app.ai.cli --agent finance --call-tool send_operator_alert --args "{}" --demo   # debe rechazarla
-python skills/fleet-triage/scripts/rank_severity.py < examples/severity_payload.json
+python -m app.ai.cli --agent finance --call-tool send_operator_alert --demo        # debe rechazarla
+python -m app.ai.cli --agent maintenance --call-tool recommend_action --args device_id=miner_007 --demo
+python skills/fleet-triage/scripts/rank_severity.py examples/severity_payload.json
 ```
 
 Lo que cubren las pruebas: formato y validez de las 4 skills, confinamiento de
 rutas de recursos, validación de perfiles, consultas del repositorio contra
 `examples/kpi_sample.csv`, regla de `recommend_action`, tools por perfil, los
 tres modos de prompt, el ciclo del agente (carga de skill bajo demanda, alerta
-al log local, ejecución del script, límite de pasos) y el script de severidad.
+al log local, ejecución del script, límite de pasos), el script de severidad
+y los errores de uso del CLI. Los comandos funcionan igual en PowerShell, cmd y
+bash: `--args` acepta `clave=valor` y el script recibe la ruta del archivo.
+
+`examples/prompts/` guarda el prompt real que recibe cada agente sobre los datos
+de ejemplo, para ver la personalización sin instalar nada.
 
 **Limitaciones conocidas**
 
@@ -207,7 +218,7 @@ al log local, ejecución del script, límite de pasos) y el script de severidad.
 
 | Afirmación | Evidencia |
 |---|---|
-| No se rompió lo existente | 49 de las 51 pruebas previas pasan; las 2 restantes (`test_models.py::TestHealthScore`) requieren `torch`, que no estaba instalado en el entorno. Con las 36 nuevas: 85 de 87 |
+| No se rompió lo existente | Las pruebas previas que no dependen de `torch` ni `scikit-learn` siguen pasando; las de `test_models.py` requieren esas librerías, que no se instalaron en el entorno de trabajo |
 | Las skills cambian el comportamiento | `TestPersonalization` y `TestAgentLoop` |
 | El contenido de las skills corresponde al proyecto | Firmas de falla contrastadas con `generator.py`; fórmulas con `kpi.py`; valores nominales con `asic_specs.py` |
 | La restricción de Gemma con tool calling es real | Ya estaba documentada en `docs/TROUBLESHOOTING.md` antes de la refactorización |
@@ -225,5 +236,22 @@ Las decisiones que tomé yo y que condicionaron el trabajo de la IA:
   con `--demo` y un CSV de 90 KB, sin pipeline de ML ni base de datos generada.
 - **Forma de validar.** Exigí que cada cambio quedara respaldado por pruebas
   automáticas y comandos reproducibles (sección 7), en vez de aceptar la
-  explicación de la IA: 36 pruebas nuevas cubren las skills, los perfiles, las
-  tools y el ciclo del agente, y las limitaciones quedan declaradas por escrito.
+  explicación de la IA: 53 pruebas cubren las skills, los perfiles, las tools,
+  el ciclo del agente y el CLI, y las limitaciones quedan declaradas por escrito.
+- **Segunda revisión.** No di por buena la primera versión. Pedí una revisión
+  completa e independiente del resultado antes de entregar; lo que encontró y
+  cómo se corrigió está en la tabla siguiente.
+
+**Qué estaba mal en la primera versión generada y cómo se corrigió**
+
+| Hallazgo de la revisión | Corrección |
+|---|---|
+| La matriz de severidad definía P3, pero `list_miners_at_risk` solo devuelve mineros que ya cumplen P2: P3 era inalcanzable | Matriz, skill y script quedaron en P1/P2, con la advertencia de que los promedios ocultan picos |
+| Los datos de ejemplo (8 mineros, 1 día) no contenían ninguna falla: el generador inyecta `int(8 x 0.05) = 0` y las fallas empiezan el día 10 | Muestra regenerada de una corrida de 30 días con fallas; consulta de exportación en `examples/export_sample.sql`; una prueba fija el caso de `miner_007` |
+| La referencia de KPIs afirmaba que un TE de 2 a 4 veces el nominal es normal; en overclock es bastante mayor | Reescrita: explica por qué varía y pide comparar entre mineros del mismo modelo y modo |
+| La plantilla de alerta venía firmada por "MDK Copilot", el agente que no puede enviar alertas | Firma corregida al agente de mantenimiento |
+| `operator-alert` exigía la acción recomendada sin tener `recommend_action` entre sus tools | Agregada a `allowed-tools`; el procedimiento dice de dónde sale cada campo |
+| La skill de triage decía "si puedes ejecutar scripts" sin nombrar la tool | El procedimiento da la llamada exacta a `run_skill_script` |
+| `recommend_action` usaba `>` para el break-even y el resto del sistema `>=`; los umbrales por defecto se congelaban al importar | Unificado a `>=`; los umbrales se leen de la configuración en cada llamada |
+| El CLI mostraba un traceback sin API key o con `--args` inválido, y el comando documentado con `<` falla en PowerShell | Errores con mensaje y código 2; `--args clave=valor`; el script acepta la ruta del archivo |
+| El README y el diagrama de arquitectura seguían describiendo 5 tools y el flujo anterior | Actualizados; los informes históricos llevan un aviso que remite a esta nota |
