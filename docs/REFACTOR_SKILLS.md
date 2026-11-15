@@ -233,7 +233,7 @@ Las decisiones que tomé yo y que condicionaron el trabajo de la IA:
 - **Sin Docker.** Descarté contenerizar la entrega: el proyecto completo arrastra
   `torch`, `xgboost` y `stable-baselines3`, y una imagen así no aporta nada a una
   actividad que evalúa la capa de agentes. Por eso la capa se puede ejecutar sola
-  con `--demo` y un CSV de 90 KB, sin pipeline de ML ni base de datos generada.
+  con `--demo` y un CSV de 160 KB, sin pipeline de ML ni base de datos generada.
 - **Forma de validar.** Exigí que cada cambio quedara respaldado por pruebas
   automáticas y comandos reproducibles (sección 7), en vez de aceptar la
   explicación de la IA: 53 pruebas cubren las skills, los perfiles, las tools,
